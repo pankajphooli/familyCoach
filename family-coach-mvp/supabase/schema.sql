@@ -1,8 +1,6 @@
 
--- Enable extensions (uuid comes from pgcrypto via gen_random_uuid)
 create extension if not exists pgcrypto;
 
--- Families
 create table if not exists public.families (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -11,7 +9,6 @@ create table if not exists public.families (
   created_at timestamptz not null default now()
 );
 
--- Family members
 create table if not exists public.family_members (
   id uuid primary key default gen_random_uuid(),
   family_id uuid not null references public.families(id) on delete cascade,
@@ -20,9 +17,8 @@ create table if not exists public.family_members (
   created_at timestamptz not null default now()
 );
 
--- Profiles
 create table if not exists public.profiles (
-  id uuid primary key, -- = auth.users.id
+  id uuid primary key,
   family_id uuid references public.families(id) on delete set null,
   full_name text,
   sex text,
@@ -43,6 +39,7 @@ create table if not exists public.profiles (
   secondary_goal text,
   equipment jsonb,
   knee_back_flags jsonb,
+  injuries jsonb default '[]'::jsonb,
   step_goal int,
   sleep_hours int,
   time_per_workout_min int,
@@ -50,7 +47,6 @@ create table if not exists public.profiles (
   updated_at timestamptz not null default now()
 );
 
--- Recipes (simplified)
 create table if not exists public.recipes (
   id uuid primary key default gen_random_uuid(),
   name text unique not null,
@@ -65,7 +61,6 @@ create table if not exists public.recipes (
   steps text
 );
 
--- Plan days + meals
 create table if not exists public.plan_days (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
@@ -87,7 +82,6 @@ create table if not exists public.plan_meals (
   substitutions jsonb
 );
 
--- Workout days + blocks
 create table if not exists public.workout_days (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
@@ -109,7 +103,6 @@ create table if not exists public.workout_blocks (
   substitutions jsonb
 );
 
--- Logs
 create table if not exists public.logs_meals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
@@ -140,7 +133,6 @@ create table if not exists public.logs_biometrics (
   hr_resting int
 );
 
--- Audit
 create table if not exists public.audit_events (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
@@ -148,4 +140,57 @@ create table if not exists public.audit_events (
   target text,
   meta jsonb,
   created_at timestamptz not null default now()
+);
+
+
+-- Calendar events
+create table if not exists public.calendar_events (
+  id uuid primary key default gen_random_uuid(),
+  family_id uuid not null references public.families(id) on delete cascade,
+  title text not null,
+  description text,
+  start_ts timestamptz not null,
+  end_ts timestamptz not null,
+  all_day boolean not null default false,
+  recurrence jsonb, -- e.g. {"type":"WEEKLY","interval":1,"byweekday":["MO","WE"],"until":null}
+  created_by uuid not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.event_attendees (
+  id uuid primary key default gen_random_uuid(),
+  event_id uuid not null references public.calendar_events(id) on delete cascade,
+  user_id uuid not null
+);
+
+-- Grocery
+create table if not exists public.grocery_items (
+  id uuid primary key default gen_random_uuid(),
+  family_id uuid not null references public.families(id) on delete cascade,
+  name text not null,
+  qty text,
+  unit text,
+  is_checked boolean not null default false,
+  added_by uuid,
+  last_added_at timestamptz not null default now(),
+  freq_count int not null default 1
+);
+
+create table if not exists public.grocery_sessions (
+  id uuid primary key default gen_random_uuid(),
+  family_id uuid not null references public.families(id) on delete cascade,
+  started_at timestamptz not null default now(),
+  completed_at timestamptz,
+  completed_by uuid
+);
+
+create table if not exists public.grocery_purchases (
+  id uuid primary key default gen_random_uuid(),
+  family_id uuid not null references public.families(id) on delete cascade,
+  session_id uuid references public.grocery_sessions(id) on delete set null,
+  name text not null,
+  qty text,
+  unit text,
+  purchased_at timestamptz not null default now(),
+  purchased_by uuid
 );
