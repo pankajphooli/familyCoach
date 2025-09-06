@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '../lib/supabaseClient'
 
 function Movement({ name }: { name: string }){
@@ -27,25 +27,27 @@ export default function Plans(){
   const [ingredients, setIngredients] = useState<string[]>([])
   const [replacingId, setReplacingId] = useState<string | null>(null)
   const [options, setOptions] = useState<any[]>([])
-
   const today = new Date().toISOString().slice(0,10)
 
-  useEffect(()=>{
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if(!user) return
-      const { data: day } = await supabase.from('plan_days').select('id').eq('user_id', user.id).eq('date', today).maybeSingle()
-      if (day){
-        const { data: ms } = await supabase.from('plan_meals').select('*').eq('plan_day_id', day.id)
-        setMeals(ms||[])
-      }
-      const { data: wday } = await supabase.from('workout_days').select('id').eq('user_id', user.id).eq('date', today).maybeSingle()
-      if (wday){
-        const { data: blocks } = await supabase.from('workout_blocks').select('*').eq('workout_day_id', wday.id)
-        setWorkout(blocks||[])
-      }
-    })()
-  }, [])
+  const load = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if(!user) return
+    const { data: day } = await supabase.from('plan_days').select('id').eq('user_id', user.id).eq('date', today).maybeSingle()
+    if (day){
+      const { data: ms } = await supabase.from('plan_meals').select('*').eq('plan_day_id', day.id)
+      setMeals(ms||[])
+    } else {
+      setMeals([])
+    }
+    const { data: wday } = await supabase.from('workout_days').select('id').eq('user_id', user.id).eq('date', today).maybeSingle()
+    if (wday){
+      const { data: blocks } = await supabase.from('workout_blocks').select('*').eq('workout_day_id', wday.id)
+      setWorkout(blocks||[])
+    } else {
+      setWorkout([])
+    }
+  }
+  useEffect(()=>{ load() }, [])
 
   const openIngredients = async (meal:any) => {
     const { data: rec } = await supabase.from('recipes').select('ingredients').ilike('name', meal.recipe_name).maybeSingle()
@@ -65,7 +67,7 @@ export default function Plans(){
 
   const loadReplacements = async (meal:any) => {
     setReplacingId(meal.id)
-    const { data: recs } = await supabase.from('recipes').select('id,name').ilike('meal_type', meal.meal_type).limit(5)
+    const { data: recs } = await supabase.from('recipes').select('id,name').ilike('meal_type', meal.meal_type).limit(6)
     setOptions(recs||[])
   }
 
@@ -73,11 +75,8 @@ export default function Plans(){
     const { error } = await supabase.from('plan_meals').update({ recipe_name }).eq('id', meal.id)
     if (error) { (window as any).toast?.('error', error.message); return }
     setReplacingId(null); setOptions([])
-    const { data: day } = await supabase.from('plan_days').select('id').eq('id', meal.plan_day_id).maybeSingle()
-    if(day){
-      const { data: ms } = await supabase.from('plan_meals').select('*').eq('plan_day_id', day.id)
-      setMeals(ms||[])
-    }
+    await load()
+    ;(window as any).toast?.('success','Meal swapped 🤝')
   }
 
   return (
@@ -114,6 +113,7 @@ export default function Plans(){
           ))}
         </div>
       </div>
+
       <div className="card">
         <h2>Workout for today</h2>
         {workout.length===0 && <p className="muted">No workout yet.</p>}
