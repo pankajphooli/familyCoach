@@ -26,3 +26,54 @@ small.muted{color:var(--muted)} .pills{display:flex;flex-wrap:wrap;gap:8px}.pill
 .topnav a{color:var(--ink);text-decoration:none;font-weight:600;opacity:.95;letter-spacing:.2px}
 .topnav a:hover{opacity:1;text-decoration:underline}
 .site-footer{margin-top:24px;opacity:.8}
+
+
+/* ====== Theming (light/dark) ====== */
+:root{
+  --bg: #f7f8fb;
+  --card: #ffffff;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --brand: #0e1f4a;
+  --accent: #d9b85f; /* soft gold */
+  --radius: 16px;
+  --shadow: 0 6px 24px rgba(0,0,0,.08);
+}
+.dark{
+  --bg: #0b1220;
+  --card: #0f172a;
+  --ink: #e5e7eb;
+  --muted: #94a3b8;
+  --brand: #8fb3ff;
+  --accent: #f1c96b;
+  --shadow: 0 10px 28px rgba(0,0,0,.35);
+}
+html, body{ background: var(--bg); color: var(--ink); }
+.container{ max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+/* Header & nav */
+.site-header{display:flex;gap:16px;justify-content:space-between;align-items:center;margin:0 0 24px 0}
+.brand{display:flex;gap:12px;align-items:center;font-weight:800;letter-spacing:.2px}
+.brand .logo{height:28px;width:auto;display:block;border-radius:8px;box-shadow: var(--shadow)}
+.topnav{display:flex;gap:20px;align-items:center}
+.topnav a{color:var(--ink);text-decoration:none;font-weight:600;opacity:.95;letter-spacing:.2px;padding:8px 2px;border-radius:10px}
+.topnav a:hover{opacity:1;text-decoration:underline}
+
+.button.ghost{background:transparent;border:1px solid rgba(0,0,0,.08);padding:8px 10px;border-radius:12px}
+.dark .button.ghost{border-color: rgba(255,255,255,.18)}
+
+/* Cards */
+.card{background:var(--card);border-radius: var(--radius);box-shadow: var(--shadow);padding:16px}
+.badge{background:var(--accent);color:#151515;border-radius:999px;padding:2px 8px;font-size:12px}
+
+/* Inputs */
+.input{background:var(--card);border:1px solid rgba(0,0,0,.08);border-radius:12px;padding:10px}
+.dark .input{border-color: rgba(255,255,255,.18)}
+
+.muted{color:var(--muted)}
+.pills{display:flex;gap:8px;flex-wrap:wrap}
+.pill{border:1px solid var(--muted);border-radius:999px;padding:4px 8px}
+.grid{display:grid;gap:16px}
+.grid-2{grid-template-columns: repeat(2,minmax(0,1fr))}
+.grid-3{grid-template-columns: repeat(3,minmax(0,1fr))}
+@media (max-width: 900px){ .grid-2,.grid-3{ grid-template-columns: 1fr } }
