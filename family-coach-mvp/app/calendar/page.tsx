@@ -36,15 +36,16 @@ export default function Calendar(){
     if (!profile?.family_id) return
     setFamilyId(profile.family_id)
 
-    // Members (profiles + auth email)
-    const { data: mems } = await supabase.from('family_members')
-      .select('user_id, role, profiles:profiles(full_name)')
+    // Members (1-1 relation to profiles). Cast to any[] to avoid TS narrowing issues for nested selects.
+    const { data: memsRaw } = await supabase.from('family_members')
+      .select('user_id, role, profiles:profiles ( full_name )')
       .eq('family_id', profile.family_id)
-    const enriched: Member[] = []
-    for (const m of (mems||[])) {
-      // get email via auth.getUser is not possible for others; fallback to null
-      enriched.push({ user_id: m.user_id, email: null, full_name: m.profiles?.full_name ?? null })
-    }
+    const mems: any[] = (memsRaw as any[]) || []
+    const enriched: Member[] = mems.map((m:any) => {
+      const p = m.profiles
+      const fullName = Array.isArray(p) ? (p[0]?.full_name ?? null) : (p?.full_name ?? null)
+      return { user_id: m.user_id, email: null, full_name: fullName }
+    })
     setMembers(enriched)
 
     // Events for next 60 days
@@ -75,7 +76,7 @@ export default function Calendar(){
       .eq('family_id', family_id)
       .lte('start_ts', end_ts)
       .gte('end_ts', start_ts)
-    const conflicts = (evs||[]).filter(e => {
+    const conflicts = (evs||[]).filter((e:any) => {
       const a = (e.event_attendees||[]).map((x:any)=>x.user_id)
       return a.some((u:string)=> attendees.includes(u))
     })
@@ -94,7 +95,7 @@ export default function Calendar(){
     // Conflict check
     const conflicts = await checkConflicts(familyId, start_ts, end_ts, attendeeIds.length>0?attendeeIds:members.map(m=>m.user_id))
     if (conflicts.length > 0) {
-      alert('Conflict found with existing events. Please adjust time or attendees.')
+      alert('Conflict found with existing events for selected attendees. Please adjust time or attendees.')
       return
     }
 
@@ -121,7 +122,7 @@ export default function Calendar(){
     await loadFamily()
   }
 
-  const weekdays = ['MO','TU','WE','TH','FR','SA','SU']
+  const weekdays: string[] = ['MO','TU','WE','TH','FR','SA','SU']
 
   const grouped = useMemo(()=>{
     const map: Record<string, Event[]> = {}
@@ -172,7 +173,7 @@ export default function Calendar(){
           </div>
         </div>
         <button className="button" onClick={createEvent}>Create Event</button>
-        <small className="muted" style={{display:'block',marginTop:8}}>The app warns on overlapping events for selected attendees and shows both timed and all-day events.</small>
+        <small className="muted" style={{display:'block',marginTop:8}}>Overlapping events for selected attendees are detected before saving. Supports all-day or timed events, and one-time or recurring.</small>
       </div>
 
       <div className="card">
