@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createAdmin } from '../../../lib/supabaseAdmin'
-import { createClient } from '../../../lib/supabaseClient'
+import { createAdmin } from '../../lib/supabaseAdmin'
+import { createClient } from '../../lib/supabaseClient'
 
 export async function POST(req: Request){
   const { email, family_id } = await req.json()
