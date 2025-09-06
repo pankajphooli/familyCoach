@@ -17,7 +17,7 @@ create policy "profiles_upsert_own" on public.profiles for insert with check ( a
 create policy "profiles_update_own" on public.profiles for update using ( auth.uid() = id );
 
 create policy "families_select_member_or_owner" on public.families for select using (
-  owner_user_id = auth.uid() or exists (select 1 from public.family_members m where m.family_id = id and m.user_id = auth.uid())
+  owner_user_id = auth.uid() or exists (select 1 from public.profiles p where p.id = auth.uid() and p.family_id = id)
 );
 create policy "families_insert_owner_is_self" on public.families for insert with check ( owner_user_id = auth.uid() );
 create policy "families_update_owner_only" on public.families for update using ( owner_user_id = auth.uid() );
@@ -107,4 +107,20 @@ create policy "grocery_purchases_family_rw" on public.grocery_purchases for all 
   exists (select 1 from public.family_members m where m.family_id = grocery_purchases.family_id and m.user_id = auth.uid())
 ) with check (
   exists (select 1 from public.family_members m where m.family_id = family_id and m.user_id = auth.uid())
+);
+
+
+create policy "family_members_manage_owner_manager" on public.family_members
+for update using (
+  exists (select 1 from public.families f where f.id = family_members.family_id and f.owner_user_id = auth.uid())
+  or exists (select 1 from public.family_members fm where fm.family_id = family_members.family_id and fm.user_id = auth.uid() and fm.can_manage_members = true)
+) with check (
+  exists (select 1 from public.families f where f.id = family_members.family_id and f.owner_user_id = auth.uid())
+  or exists (select 1 from public.family_members fm where fm.family_id = family_members.family_id and fm.user_id = auth.uid() and fm.can_manage_members = true)
+);
+
+create policy "family_members_delete_owner_manager" on public.family_members
+for delete using (
+  exists (select 1 from public.families f where f.id = family_members.family_id and f.owner_user_id = auth.uid())
+  or exists (select 1 from public.family_members fm where fm.family_id = family_members.family_id and fm.user_id = auth.uid() and fm.can_manage_members = true)
 );
