@@ -1,5 +1,4 @@
-
-# Family Coach MVP (Next.js + Supabase)
+# HouseholdHQ (Next.js + Supabase)
 
 ## Supabase setup
 1. SQL Editor → New query → paste contents of `supabase/schema.sql` → Run.
