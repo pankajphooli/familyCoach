@@ -18,7 +18,25 @@ export default function Today(){
     const dayIdx = (new Date(today).getDay()+6)%7
     const slot = (pattern.includes('veg') && !pattern.includes('non-veg')) ? plan.veg[dayIdx] : plan.nonveg[dayIdx]
 
-    const total_kcal = 1800
+        // Estimate kcal target from Mifflin-St Jeor + activity + goal
+    const ageYears = profile?.dob ? Math.max(18, Math.floor((Date.now() - new Date(profile.dob).getTime()) / (365.25*24*3600*1000))) : 30
+    const w = Number(profile?.weight_kg) || 70
+    const h = Number(profile?.height_cm) || 170
+    const sex = (profile?.sex || 'male').toLowerCase()
+    const bmr = sex === 'female' ? (10*w + 6.25*h - 5*ageYears - 161) : (10*w + 6.25*h - 5*ageYears + 5)
+    const activityMap:any = {
+      'sedentary (little/no exercise)': 1.2,
+      'lightly active (1-3 days/week)': 1.375,
+      'moderately active (3-5 days/week)': 1.55,
+      'very active (6-7 days/week)': 1.725,
+      'athlete (2x/day)': 1.9
+    }
+    const mult = activityMap[profile?.activity_level || 'sedentary (little/no exercise)'] || 1.2
+    let total_kcal = Math.round(bmr * mult)
+    const goal = (profile?.primary_goal || '').toLowerCase()
+    if (goal.includes('fat')) total_kcal = Math.round(total_kcal * 0.85)
+    if (goal.includes('muscle')) total_kcal = Math.round(total_kcal * 1.10)
+
     const { data: day, error } = await supabase.from('plan_days').insert({ user_id: user.id, date: today, total_kcal }).select().single()
     if(error){ alert(error.message); return }
     const meals = [
