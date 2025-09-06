@@ -1,27 +1,46 @@
-
 'use client'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '../lib/supabaseClient'
 
 export default function Home(){
   const supabase = createClient()
+  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => { setUser(data.user); setLoading(false) })
+    supabase.auth.getUser().then(({ data }) => { 
+      setUser(data.user); 
+      setLoading(false); 
+      if (data.user) router.push('/onboarding')
+    })
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser(session.user)
+        router.push('/onboarding')
+      }
+    })
+    return () => { sub.subscription?.unsubscribe?.() }
   }, [])
 
   const signUp = async() => {
     const { data, error } = await supabase.auth.signUp({ email, password })
-    alert(error ? error.message : 'Check your email to confirm. Then sign in.')
+    if(error) { alert(error.message); return }
+    const { data: me } = await supabase.auth.getUser()
+    if (me.user) router.push('/onboarding')
+    else alert('Check your email to confirm, then return — onboarding will start automatically.')
   }
+
   const signIn = async() => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if(error) alert(error.message)
-    else setUser(data.user)
+    else {
+      setUser(data.user)
+      router.push('/onboarding')
+    }
   }
   const signOut = async() => { await supabase.auth.signOut(); setUser(null) }
 
@@ -41,7 +60,7 @@ export default function Home(){
       </div>
       <div className="card">
         <h3>What is this?</h3>
-        <p>Family-centric diet & fitness planner. Create your profile, join your family, generate today&apos;s diet & workout plan, and track progress.</p>
+        <p>Family-centric diet & fitness planner. Create your profile, join/create your family, generate today&apos;s plan, and track progress.</p>
       </div>
     </div>
   )
