@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { createClient } from '@/app/lib/supabaseClient'
+import { createClient } from '../../lib/supabaseClient'
 
 export default function AdminErrors(){
   const supabase = createClient()
