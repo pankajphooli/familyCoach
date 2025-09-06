@@ -124,3 +124,12 @@ for delete using (
   exists (select 1 from public.families f where f.id = family_members.family_id and f.owner_user_id = auth.uid())
   or exists (select 1 from public.family_members fm where fm.family_id = family_members.family_id and fm.user_id = auth.uid() and fm.can_manage_members = true)
 );
+
+
+-- Dependents RLS
+alter table public.dependents enable row level security;
+create policy "dependents_family_rw" on public.dependents for all using (
+  exists (select 1 from public.family_members m where m.family_id = dependents.family_id and m.user_id = auth.uid())
+) with check (
+  exists (select 1 from public.family_members m where m.family_id = family_id and m.user_id = auth.uid())
+);
