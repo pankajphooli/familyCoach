@@ -1,65 +1,210 @@
-
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '../lib/supabaseClient'
 
 export default function Home(){
   const supabase = createClient()
   const router = useRouter()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [user, setUser] = useState<any>(null)
+  const [profile, setProfile] = useState<any>(null)
+
+  // dashboard data
+  const [events, setEvents] = useState<any[]>([])
+  const [meals, setMeals] = useState<any[]>([])
+  const [workout, setWorkout] = useState<any[]>([])
+  const [groceries, setGroceries] = useState<any[]>([])
+  const [latestWeight, setLatestWeight] = useState<number | null>(null)
+
+  // quick log states
+  const [quickWeight, setQuickWeight] = useState<string>('')
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => { 
-      setUser(data.user); 
-      if (data.user) router.push('/onboarding')
-    })
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setUser(session.user)
-        router.push('/onboarding')
+    supabase.auth.getUser().then(async ({ data }) => {
+      setUser(data.user || null)
+      if (data.user) {
+        // fetch profile
+        const { data: prof } = await supabase.from('profiles').select('*').eq('id', data.user.id).maybeSingle()
+        setProfile(prof || null)
+        // require onboarding if core is missing
+        if (!prof || !prof.sex || !prof.height_cm || !prof.weight_kg) {
+          router.push('/onboarding'); return
+        }
+        // load dashboard data
+        await Promise.all([loadEvents(prof), loadDiet(data.user), loadWorkout(data.user), loadGroceries(prof), loadLatestWeight(data.user)])
       }
     })
-    return () => { sub.subscription?.unsubscribe?.() }
   }, [])
 
-  const signUp = async() => {
-    const { data, error } = await supabase.auth.signUp({ email, password })
-    if(error) { alert(error.message); return }
-    const me = await supabase.auth.getUser()
-    if (me.data.user) router.push('/onboarding')
-    else alert('Check your email to confirm, then return — onboarding will start automatically.')
+  const loadEvents = async (prof:any) => {
+    if(!prof?.family_id) { setEvents([]); return }
+    const from = new Date(); const to = new Date(); to.setDate(to.getDate()+14)
+    const { data: evs } = await supabase.from('calendar_events')
+      .select('id,title,start_ts,end_ts,all_day,event_attendees(user_id)')
+      .eq('family_id', prof.family_id).gte('start_ts', from.toISOString()).lte('start_ts', to.toISOString()).order('start_ts')
+    setEvents(evs||[])
   }
 
-  const signIn = async() => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    if(error) alert(error.message)
-    else {
-      setUser(data.user)
-      router.push('/onboarding')
+  const loadDiet = async (u:any) => {
+    const today = new Date().toISOString().slice(0,10)
+    const { data: day } = await supabase.from('plan_days').select('id').eq('user_id', u.id).eq('date', today).maybeSingle()
+    if(!day){ setMeals([]); return }
+    const { data: ms } = await supabase.from('plan_meals').select('*').eq('plan_day_id', day.id)
+    setMeals(ms||[])
+  }
+
+  const loadWorkout = async (u:any) => {
+    const today = new Date().toISOString().slice(0,10)
+    const { data: wday } = await supabase.from('workout_days').select('id').eq('user_id', u.id).eq('date', today).maybeSingle()
+    if(!wday){ setWorkout([]); return }
+    const { data: blocks } = await supabase.from('workout_blocks').select('*').eq('workout_day_id', wday.id)
+    setWorkout(blocks||[])
+  }
+
+  const loadGroceries = async (prof:any) => {
+    if(!prof?.family_id){ setGroceries([]); return }
+    const { data: items } = await supabase.from('grocery_items').select('*').eq('family_id', prof.family_id).order('last_added_at', { ascending: false }).limit(6)
+    setGroceries(items||[])
+  }
+
+  const loadLatestWeight = async (u:any) => {
+    const { data: logs } = await supabase.from('logs_biometrics').select('weight_kg, date').eq('user_id', u.id).order('date', { ascending:false }).limit(1)
+    if (logs && logs.length>0) setLatestWeight(Number(logs[0].weight_kg))
+    else setLatestWeight(u?.weight_kg || null)
+  }
+
+  const markMealEaten = async (meal:any, pct:number=100) => {
+    const today = new Date().toISOString().slice(0,10)
+    const { data: { user } } = await supabase.auth.getUser()
+    if(!user) return
+    await supabase.from('logs_meals').insert({ user_id: user.id, date: today, meal_type: meal.meal_type, compliance_pct: pct })
+    alert('Logged!')
+  }
+
+  const addWeight = async () => {
+    const val = Number(quickWeight)
+    if (!val) return
+    const today = new Date().toISOString().slice(0,10)
+    const { data: { user } } = await supabase.auth.getUser()
+    if(!user) return
+    await supabase.from('logs_biometrics').insert({ user_id: user.id, date: today, weight_kg: val })
+    setQuickWeight('')
+    setLatestWeight(val)
+    alert('Weight logged')
+  }
+
+  const gapText = useMemo(()=>{
+    if(!profile) return ''
+    const current = latestWeight ?? profile.weight_kg
+    if (!current || !profile.target_weight_kg) return ''
+    const diff = (current - Number(profile.target_weight_kg)).toFixed(1)
+    const away = Number(diff) === 0 ? 'at goal' : (Number(diff) > 0 ? `${diff} kg above goal` : `${String(Math.abs(Number(diff))).toString()} kg below goal`)
+    return away
+  }, [profile, latestWeight])
+
+  if (!user) {
+    // signin/up stays for first-time visitors
+    const [emailState, setEmailState] = useState('')
+    const [pwd, setPwd] = useState('')
+    const signUp = async() => {
+      const { error } = await supabase.auth.signUp({ email: emailState, password: pwd })
+      if (error) alert(error.message); else router.push('/onboarding')
     }
-  }
-  const signOut = async() => { await supabase.auth.signOut(); setUser(null) }
-
-  return (
-    <div className="grid" style={{gap:16}}>
-      <div className="card">
-        <h2>Welcome {user ? user.email : ''}</h2>
-        {!user && (
+    const signIn = async() => {
+      const { error } = await supabase.auth.signInWithPassword({ email: emailState, password: pwd })
+      if (error) alert(error.message); else router.push('/onboarding')
+    }
+    return (
+      <div className="grid">
+        <div className="card">
+          <h2>Welcome to HouseholdHQ</h2>
           <div className="grid grid-2">
-            <input className="input" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} />
-            <input className="input" placeholder="Password" type="password" value={password} onChange={e=>setPassword(e.target.value)} />
+            <input className="input" placeholder="Email" value={emailState} onChange={e=>setEmailState(e.target.value)} />
+            <input className="input" placeholder="Password" type="password" value={pwd} onChange={e=>setPwd(e.target.value)} />
             <button className="button" onClick={signIn}>Sign in</button>
             <button className="button" onClick={signUp}>Sign up</button>
           </div>
-        )}
-        {user && <button className="button" onClick={signOut}>Sign out</button>}
+        </div>
       </div>
+    )
+  }
+
+  // Authenticated dashboard
+  return (
+    <div className="grid">
       <div className="card">
-        <h3>What is this?</h3>
-        <p>HouseholdHQ — shared family calendar, diet & fitness planner, and a collaborative grocery list. Create your profile, join/create your family, generate today&apos;s plan, and track progress.</p>
+        <h2>Dashboard</h2>
+        <small className="muted">At a glance: upcoming events, today’s plan, and your progress.</small>
+      </div>
+
+      <div className="grid grid-3">
+        <div className="card">
+          <h3>Calendar (next 14 days)</h3>
+          {events.length === 0 ? <p>No events yet. Add some in Calendar.</p> : (
+            <ul>
+              {events.slice(0,6).map(e => (
+                <li key={e.id}>
+                  <b>{new Date(e.start_ts).toLocaleDateString()}</b> — {e.title} {e.all_day ? '(All day)' : ''}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="card">
+          <h3>Today’s Diet</h3>
+          {meals.length === 0 ? <>
+            <p>No plan yet.</p>
+            <button className="button" onClick={()=>router.push('/today')}>Generate</button>
+          </> : (
+            <div className="grid">
+              {meals.map(m => (
+                <div key={m.id} className="card" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div><b>{m.meal_type}</b> — {m.recipe_name} <small className="muted">{m.kcal} kcal</small></div>
+                  <div style={{display:'flex',gap:8}}>
+                    <button className="button" onClick={()=>markMealEaten(m,100)}>Ate</button>
+                    <button className="button" onClick={()=>markMealEaten(m,50)}>50%</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="card">
+          <h3>Today’s Workout</h3>
+          {workout.length === 0 ? <>
+            <p>No workout yet.</p>
+            <button className="button" onClick={()=>router.push('/today')}>Generate</button>
+          </> : (
+            <ul>
+              {workout.map(b => <li key={b.id}><b>{b.type}</b></li>)}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-3">
+        <div className="card">
+          <h3>Grocery</h3>
+          {groceries.length === 0 ? <p>List is empty. Add items on Grocery tab or from Today’s plan.</p> : (
+            <ul>{groceries.map(i => <li key={i.id}>{i.name} <small className="muted">{[i.qty,i.unit].filter(Boolean).join(' ')}</small></li>)}</ul>
+          )}
+          <button className="button" onClick={()=>router.push('/grocery')}>Open Grocery</button>
+        </div>
+        <div className="card">
+          <h3>Goal tracking</h3>
+          <p><b>Current:</b> {latestWeight ?? profile?.weight_kg ?? '—'} kg</p>
+          <p><b>Target:</b> {profile?.target_weight_kg ?? '—'} kg</p>
+          <p>{gapText}</p>
+          <div className="grid grid-2">
+            <input className="input" placeholder="Log weight (kg)" value={quickWeight} onChange={e=>setQuickWeight(e.target.value)} />
+            <button className="button" onClick={addWeight}>Add</button>
+          </div>
+        </div>
+        <div className="card">
+          <h3>Tune plan</h3>
+          <p>Diet & exercise are adjusted by your goals and conditions. Regenerate on the Today tab when goals change.</p>
+          <button className="button" onClick={()=>router.push('/today')}>Regenerate Today</button>
+        </div>
       </div>
     </div>
   )
