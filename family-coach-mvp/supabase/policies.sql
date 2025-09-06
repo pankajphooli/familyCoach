@@ -22,8 +22,9 @@ create policy "families_select_member_or_owner" on public.families for select us
 create policy "families_insert_owner_is_self" on public.families for insert with check ( owner_user_id = auth.uid() );
 create policy "families_update_owner_only" on public.families for update using ( owner_user_id = auth.uid() );
 
-create policy "family_members_select_related" on public.family_members for select using (
-  user_id = auth.uid() or exists (select 1 from public.families f where f.id = family_id and (f.owner_user_id = auth.uid()))
+create policy "family_members_select_same_family" on public.family_members for select using (
+  user_id = auth.uid() 
+  or exists (select 1 from public.profiles p where p.id = auth.uid() and p.family_id = family_members.family_id)
 );
 create policy "family_members_insert_self" on public.family_members for insert with check ( user_id = auth.uid() );
 
