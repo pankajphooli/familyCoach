@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { createClient } from '../../lib/supabaseClient'
+import { createClient } from '../lib/supabaseClient'
 
 type Member = { user_id: string, email: string | null, full_name: string | null }
 type Kid = { id: string, name: string }
@@ -13,7 +13,6 @@ export default function Calendar(){
   const [kids, setKids] = useState<Kid[]>([])
   const [events, setEvents] = useState<Event[]>([])
 
-  // Form state
   const [title, setTitle] = useState('')
   const [desc, setDesc] = useState('')
   const [date, setDate] = useState<string>('')
@@ -25,14 +24,6 @@ export default function Calendar(){
   const [attendeeIds, setAttendeeIds] = useState<string[]>([])
   const [kidIds, setKidIds] = useState<string[]>([])
 
-  // Colors per person/kid
-  const colors = ['#60a5fa','#a78bfa','#34d399','#f472b6','#f59e0b','#22d3ee']
-  const colorFor = (key: string) => {
-    const allKeys = [...members.map(m=>m.user_id), ...kids.map(k=>'kid:'+k.id)].sort()
-    const idx = allKeys.indexOf(key)
-    return colors[idx % colors.length]
-  }
-
   const loadFamily = async () => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
@@ -40,7 +31,6 @@ export default function Calendar(){
     if (!profile?.family_id) return
     setFamilyId(profile.family_id)
 
-    // Members (profiles + auth email)
     const { data: memsRaw } = await supabase.from('family_members')
       .select('user_id, role, profiles:profiles ( full_name )')
       .eq('family_id', profile.family_id)
@@ -52,11 +42,9 @@ export default function Calendar(){
     })
     setMembers(enriched)
 
-    // Kids (dependents)
     const { data: ds } = await supabase.from('dependents').select('id,name').eq('family_id', profile.family_id)
     setKids(ds || [])
 
-    // Events for next 60 days, include attendee links
     const from = new Date(); const to = new Date(); to.setDate(to.getDate()+60)
     const { data: evs } = await supabase.from('calendar_events')
       .select('*, event_attendees ( user_id, dependent_id )')
@@ -69,15 +57,11 @@ export default function Calendar(){
 
   useEffect(()=>{ loadFamily() }, [])
 
-  const toggleAttendee = (uid:string) => {
-    setAttendeeIds(prev => prev.includes(uid) ? prev.filter(x=>x!==uid) : [...prev, uid])
-  }
-  const toggleKid = (id:string) => {
-    setKidIds(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id])
-  }
-
-  const toggleWeekday = (d:string) => {
-    setByWeekday(prev => prev.includes(d) ? prev.filter(x=>x!==d) : [...prev, d])
+  const colorFor = (key: string) => {
+    const colors = ['#60a5fa','#a78bfa','#34d399','#f472b6','#f59e0b','#22d3ee']
+    const allKeys = [...members.map(m=>m.user_id), ...kids.map(k=>'kid:'+k.id)].sort()
+    const idx = allKeys.indexOf(key)
+    return colors[idx % colors.length]
   }
 
   const checkConflicts = async(family_id:string, start_ts:string, end_ts:string, attendees:string[], kidIds:string[]) => {
@@ -95,44 +79,32 @@ export default function Calendar(){
   }
 
   const createEvent = async () => {
-    if (!familyId) { alert('Join or create a family first'); return }
-    if (!title.trim()) { alert('Please enter a title'); return }
-    if (!date) { alert('Pick a date'); return }
+    if (!familyId) { (window as any).toast?.('error','Join or create a family first'); return }
+    if (!title.trim()) { (window as any).toast?.('error','Enter a title'); return }
+    if (!date) { (window as any).toast?.('error','Pick a date'); return }
 
     const start_ts = allDay ? new Date(date+"T00:00:00").toISOString() : new Date(date+"T"+start+":00").toISOString()
     const end_ts = allDay ? new Date(date+"T23:59:00").toISOString() : new Date(date+"T"+end+":00").toISOString()
-    if (!allDay && end <= start) { alert('End time must be after start'); return }
+    if (!allDay && end <= start) { (window as any).toast?.('error','End must be after start'); return }
 
-    // Conflict check (default to everyone if none selected)
     const mems = attendeeIds.length>0 ? attendeeIds : members.map(m=>m.user_id)
     const kidsSel = kidIds.length>0 ? kidIds : kids.map(k=>k.id)
     const conflicts = await checkConflicts(familyId, start_ts, end_ts, mems, kidsSel)
-    if (conflicts.length > 0) {
-      alert('Conflict found with existing events for selected people. Please adjust time or attendees.')
-      return
-    }
+    if (conflicts.length > 0) { (window as any).toast?.('error','Time clash for someone.'); return }
 
     const recurrence = recType==='NONE' ? null : { type: recType, interval: 1, byweekday: byWeekday }
     const { data: { user } } = await supabase.auth.getUser()
     const { data: ev, error } = await supabase.from('calendar_events').insert({
-      family_id: familyId,
-      title: title.trim(),
-      description: desc || null,
-      start_ts, end_ts,
-      all_day: allDay,
-      recurrence,
-      created_by: user?.id || null
+      family_id: familyId, title: title.trim(), description: desc || null,
+      start_ts, end_ts, all_day: allDay, recurrence, created_by: user?.id || null
     }).select().single()
-    if (error) { alert(error.message); return }
+    if (error) { (window as any).toast?.('error', error.message); return }
 
-    // Attendees: create rows for members and kids
-    const rows:any[] = []
-    for (const uid of mems) rows.push({ event_id: ev.id, user_id: uid })
-    for (const kid of kidsSel) rows.push({ event_id: ev.id, dependent_id: kid })
+    const rows:any[] = []; for (const uid of mems) rows.push({ event_id: ev.id, user_id: uid }); for (const kid of kidsSel) rows.push({ event_id: ev.id, dependent_id: kid })
     const { error: aerr } = await supabase.from('event_attendees').insert(rows)
-    if (aerr) { alert(aerr.message); return }
+    if (aerr) { (window as any).toast?.('error', aerr.message); return }
 
-    alert('Event created')
+    (window as any).toast?.('success','Event created 📅')
     setTitle(''); setDesc(''); setDate(''); setStart('09:00'); setEnd('10:00'); setAllDay(false); setRecType('NONE'); setByWeekday([]); setAttendeeIds([]); setKidIds([])
     await loadFamily()
   }
@@ -225,7 +197,7 @@ export default function Calendar(){
                     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:6}}>
                       {(e.event_attendees||[]).map((a:any, i:number)=> {
                         const key = a.user_id ? a.user_id : ('kid:'+a.dependent_id)
-                        const label = a.user_id ? nameForUser(a.user_id) : nameForKid(a.dependent_id)
+                        const label = a.user_id ? members.find(m=>m.user_id===a.user_id)?.full_name || a.user_id.slice(0,6) : kids.find(k=>k.id===a.dependent_id)?.name || 'Kid'
                         return <span key={key + i} className="pill" style={{borderColor: colorFor(key)}}>{label}</span>
                       })}
                     </div>
