@@ -1,3 +1,4 @@
+
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -9,12 +10,10 @@ export default function Home(){
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [user, setUser] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => { 
       setUser(data.user); 
-      setLoading(false); 
       if (data.user) router.push('/onboarding')
     })
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -29,8 +28,8 @@ export default function Home(){
   const signUp = async() => {
     const { data, error } = await supabase.auth.signUp({ email, password })
     if(error) { alert(error.message); return }
-    const { data: me } = await supabase.auth.getUser()
-    if (me.user) router.push('/onboarding')
+    const me = await supabase.auth.getUser()
+    if (me.data.user) router.push('/onboarding')
     else alert('Check your email to confirm, then return — onboarding will start automatically.')
   }
 
