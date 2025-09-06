@@ -6,34 +6,50 @@ import { createClient } from '../lib/supabaseClient'
 export default function Home(){
   const supabase = createClient()
   const router = useRouter()
+
+  // Auth + profile
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
 
-  // dashboard data
+  // Dashboard data
   const [events, setEvents] = useState<any[]>([])
   const [meals, setMeals] = useState<any[]>([])
   const [workout, setWorkout] = useState<any[]>([])
   const [groceries, setGroceries] = useState<any[]>([])
   const [latestWeight, setLatestWeight] = useState<number | null>(null)
 
-  // quick log states
-  const [quickWeight, setQuickWeight] = useState<string>('')
+  // Sign-in states (must be declared at top-level, not inside conditionals)
+  const [emailState, setEmailState] = useState('')
+  const [pwd, setPwd] = useState('')
+
+  // Separate state for quick weight (declared at top level)
+  const [quickWeight, setQuickWeight] = useState('')
 
   useEffect(() => {
+    let mounted = true
     supabase.auth.getUser().then(async ({ data }) => {
+      if (!mounted) return
       setUser(data.user || null)
       if (data.user) {
         // fetch profile
         const { data: prof } = await supabase.from('profiles').select('*').eq('id', data.user.id).maybeSingle()
+        if (!mounted) return
         setProfile(prof || null)
-        // require onboarding if core is missing
+        // if missing core onboarding info, redirect
         if (!prof || !prof.sex || !prof.height_cm || !prof.weight_kg) {
           router.push('/onboarding'); return
         }
         // load dashboard data
-        await Promise.all([loadEvents(prof), loadDiet(data.user), loadWorkout(data.user), loadGroceries(prof), loadLatestWeight(data.user)])
+        await Promise.all([
+          loadEvents(prof),
+          loadDiet(data.user),
+          loadWorkout(data.user),
+          loadGroceries(prof),
+          loadLatestWeight(data.user)
+        ])
       }
     })
+    return () => { mounted = false }
   }, [])
 
   const loadEvents = async (prof:any) => {
@@ -70,7 +86,7 @@ export default function Home(){
   const loadLatestWeight = async (u:any) => {
     const { data: logs } = await supabase.from('logs_biometrics').select('weight_kg, date').eq('user_id', u.id).order('date', { ascending:false }).limit(1)
     if (logs && logs.length>0) setLatestWeight(Number(logs[0].weight_kg))
-    else setLatestWeight(u?.weight_kg || null)
+    else setLatestWeight(null)
   }
 
   const markMealEaten = async (meal:any, pct:number=100) => {
@@ -81,7 +97,7 @@ export default function Home(){
     alert('Logged!')
   }
 
-  const addWeight = async () => {
+  const addWeightReal = async () => {
     const val = Number(quickWeight)
     if (!val) return
     const today = new Date().toISOString().slice(0,10)
@@ -97,23 +113,21 @@ export default function Home(){
     if(!profile) return ''
     const current = latestWeight ?? profile.weight_kg
     if (!current || !profile.target_weight_kg) return ''
-    const diff = (current - Number(profile.target_weight_kg)).toFixed(1)
-    const away = Number(diff) === 0 ? 'at goal' : (Number(diff) > 0 ? `${diff} kg above goal` : `${String(Math.abs(Number(diff))).toString()} kg below goal`)
-    return away
+    const diffNum = Number((Number(current) - Number(profile.target_weight_kg)).toFixed(1))
+    if (diffNum === 0) return 'At goal'
+    return diffNum > 0 ? `${diffNum} kg above goal` : `${Math.abs(diffNum)} kg below goal`
   }, [profile, latestWeight])
 
+  const signUp = async() => {
+    const { error } = await supabase.auth.signUp({ email: emailState, password: pwd })
+    if (error) alert(error.message); else router.push('/onboarding')
+  }
+  const signIn = async() => {
+    const { error } = await supabase.auth.signInWithPassword({ email: emailState, password: pwd })
+    if (error) alert(error.message); else router.push('/onboarding')
+  }
+
   if (!user) {
-    // signin/up stays for first-time visitors
-    const [emailState, setEmailState] = useState('')
-    const [pwd, setPwd] = useState('')
-    const signUp = async() => {
-      const { error } = await supabase.auth.signUp({ email: emailState, password: pwd })
-      if (error) alert(error.message); else router.push('/onboarding')
-    }
-    const signIn = async() => {
-      const { error } = await supabase.auth.signInWithPassword({ email: emailState, password: pwd })
-      if (error) alert(error.message); else router.push('/onboarding')
-    }
     return (
       <div className="grid">
         <div className="card">
@@ -197,7 +211,7 @@ export default function Home(){
           <p>{gapText}</p>
           <div className="grid grid-2">
             <input className="input" placeholder="Log weight (kg)" value={quickWeight} onChange={e=>setQuickWeight(e.target.value)} />
-            <button className="button" onClick={addWeight}>Add</button>
+            <button className="button" onClick={addWeightReal}>Add</button>
           </div>
         </div>
         <div className="card">
