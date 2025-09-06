@@ -1,5 +1,6 @@
 import '../styles/globals.css'
 import Link from 'next/link'
+import ThemeToggle from './components/ThemeToggle'
 
 export const metadata = { title: 'HouseholdHQ', description: 'Family calendar, meals & workouts, and grocery — all in one.' }
 
@@ -9,8 +10,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }){
       <body>
         <div className="container">
           <header className="site-header">
-            <div className="brand">
-              <span className="badge">MVP</span>
+            <div className="brand"><img src="/brand/householdhq.png" alt="HouseholdHQ logo" className="logo" />
+              
               <b>HouseholdHQ</b>
             </div>
             <nav className="topnav">
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }){
               <Link href="/progress">Progress</Link>
               <Link href="/profile">Profile</Link>
             </nav>
+            <ThemeToggle />
           </header>
           {children}
           <footer className="site-footer">
