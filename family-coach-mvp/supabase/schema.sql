@@ -196,3 +196,22 @@ create table if not exists public.grocery_purchases (
   purchased_at timestamptz not null default now(),
   purchased_by uuid
 );
+
+
+-- Dependents (kids without email/accounts)
+create table if not exists public.dependents (
+  id uuid primary key default gen_random_uuid(),
+  family_id uuid not null references public.families(id) on delete cascade,
+  name text not null,
+  dob date,
+  color text,
+  created_at timestamptz not null default now()
+);
+
+-- Allow event attendees to reference a dependent without user account
+alter table public.event_attendees alter column user_id drop not null;
+alter table public.event_attendees add column if not exists dependent_id uuid references public.dependents(id) on delete cascade;
+do $$ begin
+  alter table public.event_attendees add constraint event_attendee_who_check check (user_id is not null or dependent_id is not null);
+exception when others then null;
+end $$;
