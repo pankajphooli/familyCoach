@@ -1,7 +1,7 @@
 import '../styles/globals.css'
 import Link from 'next/link'
 
-export const metadata = { title: 'Family Coach MVP', description: 'Diet & Fitness Coach for families' }
+export const metadata = { title: 'HouseholdHQ', description: 'Family calendar, meals & workouts, and grocery — all in one.' }
 
 export default function RootLayout({ children }: { children: React.ReactNode }){
   return (
@@ -11,7 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }){
           <header className="site-header">
             <div className="brand">
               <span className="badge">MVP</span>
-              <b>Family Coach</b>
+              <b>HouseholdHQ</b>
             </div>
             <nav className="topnav">
               <Link href="/">Home</Link>
