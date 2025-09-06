@@ -11,7 +11,7 @@ export default function Family(){
   const [members, setMembers] = useState<Member[]>([])
   const [kids, setKids] = useState<Kid[]>([])
   const [invite, setInvite] = useState<string>('')
-  const [name, setName] = useState<string>('')
+  const [familyName, setFamilyName] = useState<string>('')
   const [isOwner, setIsOwner] = useState<boolean>(false)
   const [inviteEmail, setInviteEmail] = useState('')
 
@@ -50,72 +50,76 @@ export default function Family(){
 
   const createFamily = async () => {
     const { data: { user } } = await supabase.auth.getUser()
-    if(!user){ (window as any).toast?.('error','Sign in first'); return }
+    if(!user){ if ((window as any).toast) (window as any).toast('error','Sign in first'); return }
     const invite_code = Math.random().toString(36).slice(2,8)
-    const { data, error } = await supabase.from('families').insert({ name, owner_user_id: user.id, invite_code }).select().single()
-    if(error) { (window as any).toast?.('error', error.message); return }
+    const { data, error } = await supabase.from('families').insert({ name: familyName, owner_user_id: user.id, invite_code }).select().single()
+    if(error) { if ((window as any).toast) (window as any).toast('error', error.message); return }
     await supabase.from('profiles').update({ family_id: data.id }).eq('id', user.id)
     await supabase.from('family_members').insert({ family_id: data.id, user_id: user.id, role: 'owner', can_manage_members: true })
-    setName('')
-    (window as any).toast?.('success','Family created. You are the owner 👑')
+    setFamilyName('')
+    if ((window as any).toast) (window as any).toast('success','Family created. You are the owner 👑')
     await load()
   }
 
   const removeMember = async (id:string) => {
-    if (!isOwner) { (window as any).toast?.('error','Only owner can remove'); return }
+    if (!isOwner) { if ((window as any).toast) (window as any).toast('error','Only owner can remove'); return }
     const { error } = await supabase.from('family_members').delete().eq('id', id)
-    if (error) (window as any).toast?.('error', error.message); else { (window as any).toast?.('success','Removed'); await load() }
+    if (error) { if ((window as any).toast) (window as any).toast('error', error.message) }
+    else { if ((window as any).toast) (window as any).toast('success','Removed'); await load() }
   }
 
   const toggleManager = async (m:Member) => {
-    if (!isOwner) { (window as any).toast?.('error','Owner only'); return }
+    if (!isOwner) { if ((window as any).toast) (window as any).toast('error','Owner only'); return }
     const { error } = await supabase.from('family_members').update({ can_manage_members: !m.can_manage_members }).eq('id', m.id)
-    if (error) (window as any).toast?.('error', error.message); else { (window as any).toast?.('success','Updated'); await load() }
+    if (error) { if ((window as any).toast) (window as any).toast('error', error.message) }
+    else { if ((window as any).toast) (window as any).toast('success','Updated'); await load() }
   }
 
   const regenInvite = async () => {
     if (!isOwner || !family) return
     const code = Math.random().toString(36).slice(2,8)
     const { error } = await supabase.from('families').update({ invite_code: code }).eq('id', family.id)
-    if (error) (window as any).toast?.('error', error.message); else { (window as any).toast?.('success','New code minted'); await load() }
+    if (error) { if ((window as any).toast) (window as any).toast('error', error.message) }
+    else { if ((window as any).toast) (window as any).toast('success','New code minted'); await load() }
   }
 
   const joinWithCode = async () => {
     const { data: fam } = await supabase.from('families').select('*').eq('invite_code', invite).maybeSingle()
-    if (!fam) { (window as any).toast?.('error','Invalid code'); return }
+    if (!fam) { if ((window as any).toast) (window as any).toast('error','Invalid code'); return }
     const { data: { user } } = await supabase.auth.getUser()
-    if(!user){ (window as any).toast?.('error','Sign in'); return }
+    if(!user){ if ((window as any).toast) (window as any).toast('error','Sign in'); return }
     await supabase.from('family_members').insert({ family_id: fam.id, user_id: user.id, role: 'member' })
     await supabase.from('profiles').update({ family_id: fam.id }).eq('id', user.id)
     setInvite('')
-    ;(window as any).toast?.('success','Joined family 🎉'); await load()
+    if ((window as any).toast) (window as any).toast('success','Joined family 🎉'); await load()
   }
 
   const sendInvite = async () => {
-    if (!inviteEmail.trim() || !family) { (window as any).toast?.('error','Enter an email'); return }
+    if (!inviteEmail.trim() || !family) { if ((window as any).toast) (window as any).toast('error','Enter an email'); return }
     const res = await fetch('/api/invite', {
       method: 'POST', headers: { 'Content-Type':'application/json' },
       body: JSON.stringify({ email: inviteEmail.trim(), family_id: family.id })
     })
     const out = await res.json()
-    if (!res.ok) { (window as any).toast?.('error', out.error || 'Invite failed'); return }
+    if (!res.ok) { if ((window as any).toast) (window as any).toast('error', out.error || 'Invite failed'); return }
     setInviteEmail('')
-    ;(window as any).toast?.('success','Invite sent ✉️')
+    if ((window as any).toast) (window as any).toast('success','Invite sent ✉️')
   }
 
   const addKid = async () => {
     if (!family) return
-    if (!kidName.trim()) { (window as any).toast?.('error','Enter a name'); return }
+    if (!kidName.trim()) { if ((window as any).toast) (window as any).toast('error','Enter a name'); return }
     const color = ['#60a5fa','#a78bfa','#34d399','#f472b6','#f59e0b','#22d3ee'][Math.floor(Math.random()*6)]
     const { error } = await supabase.from('dependents').insert({ family_id: family.id, name: kidName.trim(), dob: kidDob || null, color })
-    if (error) { (window as any).toast?.('error', error.message); return }
-    setKidName(''); setKidDob(''); (window as any).toast?.('success','Kid added 👶'); await load()
+    if (error) { if ((window as any).toast) (window as any).toast('error', error.message); return }
+    setKidName(''); setKidDob(''); if ((window as any).toast) (window as any).toast('success','Kid added 👶'); await load()
   }
 
   const removeKid = async (id:string) => {
-    if (!isOwner) { (window as any).toast?.('error','Owner only'); return }
+    if (!isOwner) { if ((window as any).toast) (window as any).toast('error','Owner only'); return }
     const { error } = await supabase.from('dependents').delete().eq('id', id)
-    if (error) (window as any).toast?.('error', error.message); else { (window as any).toast?.('success','Removed'); await load() }
+    if (error) { if ((window as any).toast) (window as any).toast('error', error.message) }
+    else { if ((window as any).toast) (window as any).toast('success','Removed'); await load() }
   }
 
   return (
@@ -125,7 +129,7 @@ export default function Family(){
           <h2>Your Family</h2>
           <p>You&apos;re not in a family yet.</p>
           <div className="grid grid-2">
-            <input className="input" placeholder="Family name" value={name} onChange={e=>setName(e.target.value)} />
+            <input className="input" placeholder="Family name" value={familyName} onChange={e=>setFamilyName(e.target.value)} />
             <button className="button" onClick={createFamily}>Create</button>
           </div>
           <hr/>
