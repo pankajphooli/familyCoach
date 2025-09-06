@@ -149,7 +149,7 @@ export default function Onboarding(){
       if (perr) { alert(perr.message); setSaving(false); return }
 
       alert('Onboarding complete!')
-      router.push('/today')
+      router.push('/')
     } finally {
       setSaving(false)
     }
