@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "1.1",
   "sections": [
     {
       "id": "account",
@@ -15,15 +15,8 @@
         {
           "id": "email",
           "label": "Email",
-          "type": "email",
-          "required": true
-        },
-        {
-          "id": "family_code",
-          "label": "Join family (code)",
           "type": "text",
-          "required": false,
-          "hint": "Leave blank to create a new family"
+          "required": true
         }
       ]
     },
@@ -52,24 +45,18 @@
           "id": "height_cm",
           "label": "Height (cm)",
           "type": "number",
-          "min": 100,
-          "max": 230,
           "required": true
         },
         {
           "id": "weight_kg",
           "label": "Current weight (kg)",
           "type": "number",
-          "min": 30,
-          "max": 250,
           "required": true
         },
         {
           "id": "target_weight_kg",
           "label": "Target weight (kg)",
           "type": "number",
-          "min": 30,
-          "max": 250,
           "required": true
         },
         {
@@ -100,7 +87,7 @@
         {
           "id": "conditions",
           "label": "Health conditions",
-          "type": "multiselect",
+          "type": "checkboxes",
           "options": [
             "none",
             "hypertension",
@@ -112,19 +99,29 @@
             "back pain",
             "shoulder pain",
             "asthma"
-          ],
-          "required": false
+          ]
         },
         {
           "id": "injuries",
           "label": "Recent injuries",
-          "type": "text",
-          "required": false
+          "type": "checkboxes",
+          "options": [
+            "none",
+            "ankle sprain",
+            "knee pain",
+            "lower back strain",
+            "shoulder impingement",
+            "tennis elbow",
+            "wrist pain",
+            "plantar fasciitis",
+            "hip strain",
+            "neck strain"
+          ]
         },
         {
           "id": "equipment",
           "label": "Available equipment",
-          "type": "multiselect",
+          "type": "checkboxes",
           "options": [
             "none/bodyweight",
             "resistance bands",
@@ -135,8 +132,7 @@
             "jump rope",
             "barbell",
             "gym access"
-          ],
-          "required": true
+          ]
         },
         {
           "id": "time_per_workout_min",
@@ -156,18 +152,12 @@
         {
           "id": "step_goal",
           "label": "Daily step goal",
-          "type": "number",
-          "min": 3000,
-          "max": 20000,
-          "required": false
+          "type": "number"
         },
         {
           "id": "sleep_hours",
           "label": "Typical sleep hours",
-          "type": "number",
-          "min": 4,
-          "max": 12,
-          "required": false
+          "type": "number"
         }
       ]
     },
@@ -180,7 +170,8 @@
           "label": "Dietary pattern",
           "type": "select",
           "options": [
-            "omnivore",
+            "non-veg",
+            "non-veg (chicken only, no beef)",
             "vegetarian",
             "vegan",
             "pescatarian",
@@ -193,7 +184,7 @@
         {
           "id": "allergies",
           "label": "Allergies",
-          "type": "multiselect",
+          "type": "checkboxes",
           "options": [
             "none",
             "peanuts",
@@ -206,19 +197,17 @@
             "shellfish",
             "fish",
             "mustard"
-          ],
-          "required": false
+          ]
         },
         {
           "id": "dislikes",
           "label": "Foods you dislike",
-          "type": "text",
-          "required": false
+          "type": "text"
         },
         {
           "id": "cuisines",
           "label": "Cuisine preferences",
-          "type": "multiselect",
+          "type": "checkboxes",
           "options": [
             "indian",
             "mediterranean",
@@ -229,8 +218,7 @@
             "mexican",
             "british",
             "american"
-          ],
-          "required": false
+          ]
         },
         {
           "id": "budget_level",
@@ -265,8 +253,7 @@
             "16:8",
             "18:6",
             "20:4"
-          ],
-          "required": false
+          ]
         }
       ]
     },
@@ -297,11 +284,9 @@
             "reduce knee pain",
             "reduce back pain",
             "better sleep"
-          ],
-          "required": false
+          ]
         }
       ]
     }
-  ],
-  "validation_notes": "Use server-side validation, normalize units, store allergies/dislikes as arrays."
+  ]
 }
