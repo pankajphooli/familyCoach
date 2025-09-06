@@ -3,12 +3,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '../../lib/supabaseClient'
 
 type Member = { user_id: string, email: string | null, full_name: string | null }
+type Kid = { id: string, name: string }
 type Event = any
 
 export default function Calendar(){
   const supabase = createClient()
   const [familyId, setFamilyId] = useState<string | null>(null)
   const [members, setMembers] = useState<Member[]>([])
+  const [kids, setKids] = useState<Kid[]>([])
   const [events, setEvents] = useState<Event[]>([])
 
   // Form state
@@ -21,11 +23,13 @@ export default function Calendar(){
   const [recType, setRecType] = useState<'NONE'|'DAILY'|'WEEKLY'|'MONTHLY'>('NONE')
   const [byWeekday, setByWeekday] = useState<string[]>([])
   const [attendeeIds, setAttendeeIds] = useState<string[]>([])
+  const [kidIds, setKidIds] = useState<string[]>([])
 
-  // Colors per member
+  // Colors per person/kid
   const colors = ['#60a5fa','#a78bfa','#34d399','#f472b6','#f59e0b','#22d3ee']
-  const colorFor = (uid: string) => {
-    const idx = members.map(m=>m.user_id).sort().indexOf(uid)
+  const colorFor = (key: string) => {
+    const allKeys = [...members.map(m=>m.user_id), ...kids.map(k=>'kid:'+k.id)].sort()
+    const idx = allKeys.indexOf(key)
     return colors[idx % colors.length]
   }
 
@@ -36,7 +40,7 @@ export default function Calendar(){
     if (!profile?.family_id) return
     setFamilyId(profile.family_id)
 
-    // Members (1-1 relation to profiles). Cast to any[] to avoid TS narrowing issues for nested selects.
+    // Members (profiles + auth email)
     const { data: memsRaw } = await supabase.from('family_members')
       .select('user_id, role, profiles:profiles ( full_name )')
       .eq('family_id', profile.family_id)
@@ -48,10 +52,14 @@ export default function Calendar(){
     })
     setMembers(enriched)
 
-    // Events for next 60 days
+    // Kids (dependents)
+    const { data: ds } = await supabase.from('dependents').select('id,name').eq('family_id', profile.family_id)
+    setKids(ds || [])
+
+    // Events for next 60 days, include attendee links
     const from = new Date(); const to = new Date(); to.setDate(to.getDate()+60)
     const { data: evs } = await supabase.from('calendar_events')
-      .select('*, event_attendees ( user_id )')
+      .select('*, event_attendees ( user_id, dependent_id )')
       .eq('family_id', profile.family_id)
       .gte('start_ts', from.toISOString())
       .lte('start_ts', to.toISOString())
@@ -64,21 +72,24 @@ export default function Calendar(){
   const toggleAttendee = (uid:string) => {
     setAttendeeIds(prev => prev.includes(uid) ? prev.filter(x=>x!==uid) : [...prev, uid])
   }
+  const toggleKid = (id:string) => {
+    setKidIds(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id])
+  }
 
   const toggleWeekday = (d:string) => {
     setByWeekday(prev => prev.includes(d) ? prev.filter(x=>x!==d) : [...prev, d])
   }
 
-  const checkConflicts = async(family_id:string, start_ts:string, end_ts:string, attendees:string[]) => {
-    // Pull events overlapping this range and see if any share an attendee
+  const checkConflicts = async(family_id:string, start_ts:string, end_ts:string, attendees:string[], kidIds:string[]) => {
     const { data: evs } = await supabase.from('calendar_events')
-      .select('id, title, start_ts, end_ts, event_attendees(user_id)')
+      .select('id, title, start_ts, end_ts, event_attendees(user_id,dependent_id)')
       .eq('family_id', family_id)
       .lte('start_ts', end_ts)
       .gte('end_ts', start_ts)
     const conflicts = (evs||[]).filter((e:any) => {
-      const a = (e.event_attendees||[]).map((x:any)=>x.user_id)
-      return a.some((u:string)=> attendees.includes(u))
+      const aUsers = (e.event_attendees||[]).map((x:any)=>x.user_id).filter(Boolean)
+      const aKids = (e.event_attendees||[]).map((x:any)=>x.dependent_id).filter(Boolean)
+      return aUsers.some((u:string)=> attendees.includes(u)) || aKids.some((k:string)=> kidIds.includes(k))
     })
     return conflicts
   }
@@ -92,10 +103,12 @@ export default function Calendar(){
     const end_ts = allDay ? new Date(date+"T23:59:00").toISOString() : new Date(date+"T"+end+":00").toISOString()
     if (!allDay && end <= start) { alert('End time must be after start'); return }
 
-    // Conflict check
-    const conflicts = await checkConflicts(familyId, start_ts, end_ts, attendeeIds.length>0?attendeeIds:members.map(m=>m.user_id))
+    // Conflict check (default to everyone if none selected)
+    const mems = attendeeIds.length>0 ? attendeeIds : members.map(m=>m.user_id)
+    const kidsSel = kidIds.length>0 ? kidIds : kids.map(k=>k.id)
+    const conflicts = await checkConflicts(familyId, start_ts, end_ts, mems, kidsSel)
     if (conflicts.length > 0) {
-      alert('Conflict found with existing events for selected attendees. Please adjust time or attendees.')
+      alert('Conflict found with existing events for selected people. Please adjust time or attendees.')
       return
     }
 
@@ -112,13 +125,15 @@ export default function Calendar(){
     }).select().single()
     if (error) { alert(error.message); return }
 
-    // Attendees: default to everyone if none selected
-    const attendees = attendeeIds.length>0 ? attendeeIds : members.map(m=>m.user_id)
-    const { error: aerr } = await supabase.from('event_attendees').insert(attendees.map(uid => ({ event_id: ev.id, user_id: uid })))
+    // Attendees: create rows for members and kids
+    const rows:any[] = []
+    for (const uid of mems) rows.push({ event_id: ev.id, user_id: uid })
+    for (const kid of kidsSel) rows.push({ event_id: ev.id, dependent_id: kid })
+    const { error: aerr } = await supabase.from('event_attendees').insert(rows)
     if (aerr) { alert(aerr.message); return }
 
     alert('Event created')
-    setTitle(''); setDesc(''); setDate(''); setStart('09:00'); setEnd('10:00'); setAllDay(false); setRecType('NONE'); setByWeekday([]); setAttendeeIds([])
+    setTitle(''); setDesc(''); setDate(''); setStart('09:00'); setEnd('10:00'); setAllDay(false); setRecType('NONE'); setByWeekday([]); setAttendeeIds([]); setKidIds([])
     await loadFamily()
   }
 
@@ -133,6 +148,9 @@ export default function Calendar(){
     }
     return Object.entries(map).sort((a,b)=>a[0].localeCompare(b[0]))
   }, [events])
+
+  const nameForUser = (uid:string) => members.find(m=>m.user_id===uid)?.full_name || uid?.slice(0,6)
+  const nameForKid = (id:string) => kids.find(k=>k.id===id)?.name || 'Kid'
 
   return (
     <div className="grid">
@@ -155,18 +173,35 @@ export default function Calendar(){
           </select>
           {recType==='WEEKLY' && (
             <div className="checkbox-group" style={{gridColumn:'1 / -1'}}>
-              {weekdays.map(d => (
-                <label key={d} className="checkbox-item"><input type="checkbox" checked={byWeekday.includes(d)} onChange={()=>toggleWeekday(d)} /><span>{d}</span></label>
+              {['MO','TU','WE','TH','FR','SA','SU'].map(d => (
+                <label key={d} className="checkbox-item"><input type="checkbox" checked={byWeekday.includes(d)} onChange={()=>{
+                  setByWeekday(prev => prev.includes(d) ? prev.filter(x=>x!==d) : [...prev, d])
+                }} /><span>{d}</span></label>
               ))}
             </div>
           )}
           <div style={{gridColumn:'1 / -1'}}>
-            <small className="muted">Attendees</small>
+            <small className="muted">Attendees — Members</small>
             <div className="checkbox-group">
               {members.map(m => (
                 <label key={m.user_id} className="checkbox-item" style={{borderColor: colorFor(m.user_id)}}>
-                  <input type="checkbox" checked={attendeeIds.includes(m.user_id)} onChange={()=>toggleAttendee(m.user_id)} />
-                  <span>{m.full_name || m.email || m.user_id.slice(0,6)}</span>
+                  <input type="checkbox" checked={attendeeIds.includes(m.user_id)} onChange={()=>{
+                    setAttendeeIds(prev => prev.includes(m.user_id) ? prev.filter(x=>x!==m.user_id) : [...prev, m.user_id])
+                  }} />
+                  <span>{m.full_name || m.user_id.slice(0,6)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div style={{gridColumn:'1 / -1'}}>
+            <small className="muted">Attendees — Kids</small>
+            <div className="checkbox-group">
+              {kids.map(k => (
+                <label key={k.id} className="checkbox-item" style={{borderColor: colorFor('kid:'+k.id)}}>
+                  <input type="checkbox" checked={kidIds.includes(k.id)} onChange={()=>{
+                    setKidIds(prev => prev.includes(k.id) ? prev.filter(x=>x!==k.id) : [...prev, k.id])
+                  }} />
+                  <span>{k.name}</span>
                 </label>
               ))}
             </div>
@@ -188,9 +223,11 @@ export default function Calendar(){
                   <div key={e.id} className="card">
                     <div><b>{e.title}</b> <small className="muted">({e.all_day ? 'All day' : (new Date(e.start_ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) + '–' + new Date(e.end_ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}))})</small></div>
                     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:6}}>
-                      {(e.event_attendees||[]).map((a:any)=> (
-                        <span key={a.user_id} className="pill" style={{borderColor: colorFor(a.user_id)}}>{members.find(m=>m.user_id===a.user_id)?.full_name || a.user_id.slice(0,6)}</span>
-                      ))}
+                      {(e.event_attendees||[]).map((a:any, i:number)=> {
+                        const key = a.user_id ? a.user_id : ('kid:'+a.dependent_id)
+                        const label = a.user_id ? nameForUser(a.user_id) : nameForKid(a.dependent_id)
+                        return <span key={key + i} className="pill" style={{borderColor: colorFor(key)}}>{label}</span>
+                      })}
                     </div>
                   </div>
                 ))}
