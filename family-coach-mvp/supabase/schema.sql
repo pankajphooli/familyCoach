@@ -38,6 +38,7 @@ create table if not exists public.profiles (
   primary_goal text,
   secondary_goal text,
   equipment jsonb,
+  conditions jsonb default '[]'::jsonb,
   knee_back_flags jsonb,
   injuries jsonb default '[]'::jsonb,
   step_goal int,
