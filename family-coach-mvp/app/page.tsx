@@ -59,7 +59,7 @@ export default function Home(){
       </div>
       <div className="card">
         <h3>What is this?</h3>
-        <p>Family-centric diet & fitness planner. Create your profile, join/create your family, generate today&apos;s plan, and track progress.</p>
+        <p>HouseholdHQ — shared family calendar, diet & fitness planner, and a collaborative grocery list. Create your profile, join/create your family, generate today&apos;s plan, and track progress.</p>
       </div>
     </div>
   )
