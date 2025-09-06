@@ -144,6 +144,31 @@ export default function Today(){
     setWorkoutBlocks(blocks||[])
   }
 
+  const addMealsToGrocery = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if(!user){ alert('Sign in first'); return }
+    const { data: day } = await supabase.from('plan_days').select('id').eq('user_id', user.id).eq('date', today).maybeSingle()
+    if(!day){ alert('No plan for today yet'); return }
+    const { data: meals } = await supabase.from('plan_meals').select('*').eq('plan_day_id', day.id)
+    if(!meals || meals.length===0){ alert('No meals to add'); return }
+
+    const { data: profile } = await supabase.from('profiles').select('family_id').eq('id', user.id).maybeSingle()
+    if(!profile?.family_id){ alert('Join or create a family first'); return }
+
+    for (const m of meals){
+      const { data: rec } = await supabase.from('recipes').select('ingredients').ilike('name', m.recipe_name).maybeSingle()
+      if (rec?.ingredients){
+        const parts = rec.ingredients.split(',').map((s:string)=>s.trim()).filter(Boolean)
+        for (const p of parts){
+          await supabase.from('grocery_items').insert({ family_id: profile.family_id, name: p })
+        }
+      } else {
+        await supabase.from('grocery_items').insert({ family_id: profile.family_id, name: m.recipe_name })
+      }
+    }
+    alert('Added ingredients to grocery list.')
+  }
+
   useEffect(()=>{ loadDiet(); loadWorkout() }, [])
 
   return (
@@ -153,7 +178,7 @@ export default function Today(){
         <div className="card">
           <h3>Diet</h3>
           {planMeals.length === 0 && <button className="button" onClick={generateDiet}>Generate Diet Plan</button>}
-          {planMeals.length > 0 && <button className="button" onClick={addMealsToGrocery}>Add today\'s ingredients to Grocery</button>}
+          {planMeals.length > 0 && <button className="button" onClick={addMealsToGrocery}>Add today&apos;s ingredients to Grocery</button>}
           {planMeals.length > 0 && (
             <div className="grid">
               {planMeals.map(m => (
@@ -184,32 +209,3 @@ export default function Today(){
     </div>
   )
 }
-
-
-  const addMealsToGrocery = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if(!user){ alert('Sign in first'); return }
-    // find today's day id
-    const { data: day } = await supabase.from('plan_days').select('id').eq('user_id', user.id).eq('date', today).maybeSingle()
-    if(!day){ alert('No plan for today yet'); return }
-    const { data: meals } = await supabase.from('plan_meals').select('*').eq('plan_day_id', day.id)
-    if(!meals || meals.length===0){ alert('No meals to add'); return }
-
-    const { data: profile } = await supabase.from('profiles').select('family_id').eq('id', user.id).maybeSingle()
-    if(!profile?.family_id){ alert('Join or create a family first'); return }
-
-    for (const m of meals){
-      // Try to fetch recipe ingredients
-      const { data: rec } = await supabase.from('recipes').select('ingredients').ilike('name', m.recipe_name).maybeSingle()
-      if (rec?.ingredients){
-        const parts = rec.ingredients.split(',').map((s:string)=>s.trim()).filter(Boolean)
-        for (const p of parts){
-          await supabase.from('grocery_items').insert({ family_id: profile.family_id, name: p })
-        }
-      } else {
-        // fallback add recipe name itself
-        await supabase.from('grocery_items').insert({ family_id: profile.family_id, name: m.recipe_name })
-      }
-    }
-    alert('Added ingredients to grocery list.')
-  }
