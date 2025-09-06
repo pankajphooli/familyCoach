@@ -1,0 +1,307 @@
+{
+  "version": "1.0",
+  "sections": [
+    {
+      "id": "account",
+      "title": "Account & Family",
+      "fields": [
+        {
+          "id": "full_name",
+          "label": "Full name",
+          "type": "text",
+          "required": true,
+          "max_length": 100
+        },
+        {
+          "id": "email",
+          "label": "Email",
+          "type": "email",
+          "required": true
+        },
+        {
+          "id": "family_code",
+          "label": "Join family (code)",
+          "type": "text",
+          "required": false,
+          "hint": "Leave blank to create a new family"
+        }
+      ]
+    },
+    {
+      "id": "basics",
+      "title": "Basics",
+      "fields": [
+        {
+          "id": "sex",
+          "label": "Sex",
+          "type": "select",
+          "options": [
+            "male",
+            "female",
+            "prefer_not_to_say"
+          ],
+          "required": true
+        },
+        {
+          "id": "dob",
+          "label": "Date of birth",
+          "type": "date",
+          "required": true
+        },
+        {
+          "id": "height_cm",
+          "label": "Height (cm)",
+          "type": "number",
+          "min": 100,
+          "max": 230,
+          "required": true
+        },
+        {
+          "id": "weight_kg",
+          "label": "Current weight (kg)",
+          "type": "number",
+          "min": 30,
+          "max": 250,
+          "required": true
+        },
+        {
+          "id": "target_weight_kg",
+          "label": "Target weight (kg)",
+          "type": "number",
+          "min": 30,
+          "max": 250,
+          "required": true
+        },
+        {
+          "id": "target_date",
+          "label": "Target date",
+          "type": "date",
+          "required": false
+        },
+        {
+          "id": "activity_level",
+          "label": "Activity level",
+          "type": "select",
+          "options": [
+            "sedentary (little/no exercise)",
+            "lightly active (1-3 days/week)",
+            "moderately active (3-5 days/week)",
+            "very active (6-7 days/week)",
+            "athlete (2x/day)"
+          ],
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "health",
+      "title": "Health & Constraints",
+      "fields": [
+        {
+          "id": "conditions",
+          "label": "Health conditions",
+          "type": "multiselect",
+          "options": [
+            "none",
+            "hypertension",
+            "diabetes (type 2)",
+            "high cholesterol",
+            "hypothyroid",
+            "pcos",
+            "knee pain",
+            "back pain",
+            "shoulder pain",
+            "asthma"
+          ],
+          "required": false
+        },
+        {
+          "id": "injuries",
+          "label": "Recent injuries",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "equipment",
+          "label": "Available equipment",
+          "type": "multiselect",
+          "options": [
+            "none/bodyweight",
+            "resistance bands",
+            "dumbbells (pair)",
+            "kettlebell",
+            "treadmill",
+            "stationary bike",
+            "jump rope",
+            "barbell",
+            "gym access"
+          ],
+          "required": true
+        },
+        {
+          "id": "time_per_workout_min",
+          "label": "Time per workout (min)",
+          "type": "select",
+          "options": [
+            15,
+            20,
+            25,
+            30,
+            35,
+            40,
+            45
+          ],
+          "required": true
+        },
+        {
+          "id": "step_goal",
+          "label": "Daily step goal",
+          "type": "number",
+          "min": 3000,
+          "max": 20000,
+          "required": false
+        },
+        {
+          "id": "sleep_hours",
+          "label": "Typical sleep hours",
+          "type": "number",
+          "min": 4,
+          "max": 12,
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "diet",
+      "title": "Dietary Preferences",
+      "fields": [
+        {
+          "id": "dietary_pattern",
+          "label": "Dietary pattern",
+          "type": "select",
+          "options": [
+            "omnivore",
+            "vegetarian",
+            "vegan",
+            "pescatarian",
+            "jain",
+            "halal",
+            "kosher"
+          ],
+          "required": true
+        },
+        {
+          "id": "allergies",
+          "label": "Allergies",
+          "type": "multiselect",
+          "options": [
+            "none",
+            "peanuts",
+            "tree nuts",
+            "sesame",
+            "soy",
+            "dairy",
+            "eggs",
+            "gluten",
+            "shellfish",
+            "fish",
+            "mustard"
+          ],
+          "required": false
+        },
+        {
+          "id": "dislikes",
+          "label": "Foods you dislike",
+          "type": "text",
+          "required": false
+        },
+        {
+          "id": "cuisines",
+          "label": "Cuisine preferences",
+          "type": "multiselect",
+          "options": [
+            "indian",
+            "mediterranean",
+            "middle eastern",
+            "thai",
+            "chinese",
+            "italian",
+            "mexican",
+            "british",
+            "american"
+          ],
+          "required": false
+        },
+        {
+          "id": "budget_level",
+          "label": "Budget",
+          "type": "select",
+          "options": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "required": true
+        },
+        {
+          "id": "meals_per_day",
+          "label": "Meals per day",
+          "type": "select",
+          "options": [
+            3,
+            4,
+            5,
+            6
+          ],
+          "required": true
+        },
+        {
+          "id": "fasting_window",
+          "label": "Fasting window (if any)",
+          "type": "select",
+          "options": [
+            "none",
+            "14:10",
+            "16:8",
+            "18:6",
+            "20:4"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "goals",
+      "title": "Goals",
+      "fields": [
+        {
+          "id": "primary_goal",
+          "label": "Primary goal",
+          "type": "select",
+          "options": [
+            "fat loss",
+            "muscle gain",
+            "recomp/toning",
+            "maintenance"
+          ],
+          "required": true
+        },
+        {
+          "id": "secondary_goal",
+          "label": "Secondary goal (optional)",
+          "type": "select",
+          "options": [
+            "improve cardio",
+            "increase steps",
+            "flexibility/mobility",
+            "reduce knee pain",
+            "reduce back pain",
+            "better sleep"
+          ],
+          "required": false
+        }
+      ]
+    }
+  ],
+  "validation_notes": "Use server-side validation, normalize units, store allergies/dislikes as arrays."
+}

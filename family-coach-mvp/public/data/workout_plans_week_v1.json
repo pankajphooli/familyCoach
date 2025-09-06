@@ -1,0 +1,918 @@
+{
+  "version": "1.0",
+  "beginner": [
+    {
+      "day": "Mon",
+      "level": "beginner",
+      "duration_min": 25,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Sit-to-Stand",
+          "sets": 3,
+          "reps": 10,
+          "alt_if_knee_pain": "Hip Hinge (dowel) to wall tap"
+        },
+        {
+          "movement": "Wall Push-up",
+          "sets": 3,
+          "reps": 10,
+          "progress_to": "Incline Push-up"
+        },
+        {
+          "movement": "Glute Bridge",
+          "sets": 3,
+          "reps": 12,
+          "alt_if_back_pain": "Short ROM Bridge"
+        },
+        {
+          "movement": "Band Row",
+          "sets": 3,
+          "reps": 12,
+          "alt": "DB Row supported"
+        },
+        {
+          "movement": "Dead Bug",
+          "sets": 3,
+          "reps_each": 8
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    },
+    {
+      "day": "Tue",
+      "level": "beginner",
+      "duration_min": 25,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Sit-to-Stand",
+          "sets": 3,
+          "reps": 10,
+          "alt_if_knee_pain": "Hip Hinge (dowel) to wall tap"
+        },
+        {
+          "movement": "Wall Push-up",
+          "sets": 3,
+          "reps": 10,
+          "progress_to": "Incline Push-up"
+        },
+        {
+          "movement": "Glute Bridge",
+          "sets": 3,
+          "reps": 12,
+          "alt_if_back_pain": "Short ROM Bridge"
+        },
+        {
+          "movement": "Band Row",
+          "sets": 3,
+          "reps": 12,
+          "alt": "DB Row supported"
+        },
+        {
+          "movement": "Dead Bug",
+          "sets": 3,
+          "reps_each": 8
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    },
+    {
+      "day": "Wed",
+      "level": "beginner",
+      "duration_min": 20,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Sit-to-Stand",
+          "sets": 3,
+          "reps": 10,
+          "alt_if_knee_pain": "Hip Hinge (dowel) to wall tap"
+        },
+        {
+          "movement": "Wall Push-up",
+          "sets": 3,
+          "reps": 10,
+          "progress_to": "Incline Push-up"
+        },
+        {
+          "movement": "Glute Bridge",
+          "sets": 3,
+          "reps": 12,
+          "alt_if_back_pain": "Short ROM Bridge"
+        },
+        {
+          "movement": "Band Row",
+          "sets": 3,
+          "reps": 12,
+          "alt": "DB Row supported"
+        },
+        {
+          "movement": "Dead Bug",
+          "sets": 3,
+          "reps_each": 8
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    },
+    {
+      "day": "Thu",
+      "level": "beginner",
+      "duration_min": 25,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Sit-to-Stand",
+          "sets": 3,
+          "reps": 10,
+          "alt_if_knee_pain": "Hip Hinge (dowel) to wall tap"
+        },
+        {
+          "movement": "Wall Push-up",
+          "sets": 3,
+          "reps": 10,
+          "progress_to": "Incline Push-up"
+        },
+        {
+          "movement": "Glute Bridge",
+          "sets": 3,
+          "reps": 12,
+          "alt_if_back_pain": "Short ROM Bridge"
+        },
+        {
+          "movement": "Band Row",
+          "sets": 3,
+          "reps": 12,
+          "alt": "DB Row supported"
+        },
+        {
+          "movement": "Dead Bug",
+          "sets": 3,
+          "reps_each": 8
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    },
+    {
+      "day": "Fri",
+      "level": "beginner",
+      "duration_min": 25,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Sit-to-Stand",
+          "sets": 3,
+          "reps": 10,
+          "alt_if_knee_pain": "Hip Hinge (dowel) to wall tap"
+        },
+        {
+          "movement": "Wall Push-up",
+          "sets": 3,
+          "reps": 10,
+          "progress_to": "Incline Push-up"
+        },
+        {
+          "movement": "Glute Bridge",
+          "sets": 3,
+          "reps": 12,
+          "alt_if_back_pain": "Short ROM Bridge"
+        },
+        {
+          "movement": "Band Row",
+          "sets": 3,
+          "reps": 12,
+          "alt": "DB Row supported"
+        },
+        {
+          "movement": "Dead Bug",
+          "sets": 3,
+          "reps_each": 8
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    },
+    {
+      "day": "Sat",
+      "level": "beginner",
+      "duration_min": 25,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Sit-to-Stand",
+          "sets": 3,
+          "reps": 10,
+          "alt_if_knee_pain": "Hip Hinge (dowel) to wall tap"
+        },
+        {
+          "movement": "Wall Push-up",
+          "sets": 3,
+          "reps": 10,
+          "progress_to": "Incline Push-up"
+        },
+        {
+          "movement": "Glute Bridge",
+          "sets": 3,
+          "reps": 12,
+          "alt_if_back_pain": "Short ROM Bridge"
+        },
+        {
+          "movement": "Band Row",
+          "sets": 3,
+          "reps": 12,
+          "alt": "DB Row supported"
+        },
+        {
+          "movement": "Dead Bug",
+          "sets": 3,
+          "reps_each": 8
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    },
+    {
+      "day": "Sun",
+      "level": "beginner",
+      "duration_min": 25,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Sit-to-Stand",
+          "sets": 3,
+          "reps": 10,
+          "alt_if_knee_pain": "Hip Hinge (dowel) to wall tap"
+        },
+        {
+          "movement": "Wall Push-up",
+          "sets": 3,
+          "reps": 10,
+          "progress_to": "Incline Push-up"
+        },
+        {
+          "movement": "Glute Bridge",
+          "sets": 3,
+          "reps": 12,
+          "alt_if_back_pain": "Short ROM Bridge"
+        },
+        {
+          "movement": "Band Row",
+          "sets": 3,
+          "reps": 12,
+          "alt": "DB Row supported"
+        },
+        {
+          "movement": "Dead Bug",
+          "sets": 3,
+          "reps_each": 8
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    }
+  ],
+  "intermediate": [
+    {
+      "day": "Mon",
+      "level": "intermediate",
+      "duration_min": 35,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Goblet Squat",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_knee_pain": "Sit-to-Stand"
+        },
+        {
+          "movement": "Incline Push-up",
+          "sets": 4,
+          "reps": 10,
+          "progress_to": "Full Push-up"
+        },
+        {
+          "movement": "Romanian Deadlift (DB)",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_back_pain": "Hip Hinge (dowel)"
+        },
+        {
+          "movement": "DB Row",
+          "sets": 4,
+          "reps": 10,
+          "alt": "Band Row"
+        },
+        {
+          "movement": "Banded Pallof Press",
+          "sets": 3,
+          "reps": 12
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    },
+    {
+      "day": "Tue",
+      "level": "intermediate",
+      "duration_min": 35,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Goblet Squat",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_knee_pain": "Sit-to-Stand"
+        },
+        {
+          "movement": "Incline Push-up",
+          "sets": 4,
+          "reps": 10,
+          "progress_to": "Full Push-up"
+        },
+        {
+          "movement": "Romanian Deadlift (DB)",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_back_pain": "Hip Hinge (dowel)"
+        },
+        {
+          "movement": "DB Row",
+          "sets": 4,
+          "reps": 10,
+          "alt": "Band Row"
+        },
+        {
+          "movement": "Banded Pallof Press",
+          "sets": 3,
+          "reps": 12
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    },
+    {
+      "day": "Wed",
+      "level": "intermediate",
+      "duration_min": 30,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Goblet Squat",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_knee_pain": "Sit-to-Stand"
+        },
+        {
+          "movement": "Incline Push-up",
+          "sets": 4,
+          "reps": 10,
+          "progress_to": "Full Push-up"
+        },
+        {
+          "movement": "Romanian Deadlift (DB)",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_back_pain": "Hip Hinge (dowel)"
+        },
+        {
+          "movement": "DB Row",
+          "sets": 4,
+          "reps": 10,
+          "alt": "Band Row"
+        },
+        {
+          "movement": "Banded Pallof Press",
+          "sets": 3,
+          "reps": 12
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    },
+    {
+      "day": "Thu",
+      "level": "intermediate",
+      "duration_min": 35,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Goblet Squat",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_knee_pain": "Sit-to-Stand"
+        },
+        {
+          "movement": "Incline Push-up",
+          "sets": 4,
+          "reps": 10,
+          "progress_to": "Full Push-up"
+        },
+        {
+          "movement": "Romanian Deadlift (DB)",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_back_pain": "Hip Hinge (dowel)"
+        },
+        {
+          "movement": "DB Row",
+          "sets": 4,
+          "reps": 10,
+          "alt": "Band Row"
+        },
+        {
+          "movement": "Banded Pallof Press",
+          "sets": 3,
+          "reps": 12
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    },
+    {
+      "day": "Fri",
+      "level": "intermediate",
+      "duration_min": 35,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Goblet Squat",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_knee_pain": "Sit-to-Stand"
+        },
+        {
+          "movement": "Incline Push-up",
+          "sets": 4,
+          "reps": 10,
+          "progress_to": "Full Push-up"
+        },
+        {
+          "movement": "Romanian Deadlift (DB)",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_back_pain": "Hip Hinge (dowel)"
+        },
+        {
+          "movement": "DB Row",
+          "sets": 4,
+          "reps": 10,
+          "alt": "Band Row"
+        },
+        {
+          "movement": "Banded Pallof Press",
+          "sets": 3,
+          "reps": 12
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    },
+    {
+      "day": "Sat",
+      "level": "intermediate",
+      "duration_min": 35,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Goblet Squat",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_knee_pain": "Sit-to-Stand"
+        },
+        {
+          "movement": "Incline Push-up",
+          "sets": 4,
+          "reps": 10,
+          "progress_to": "Full Push-up"
+        },
+        {
+          "movement": "Romanian Deadlift (DB)",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_back_pain": "Hip Hinge (dowel)"
+        },
+        {
+          "movement": "DB Row",
+          "sets": 4,
+          "reps": 10,
+          "alt": "Band Row"
+        },
+        {
+          "movement": "Banded Pallof Press",
+          "sets": 3,
+          "reps": 12
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    },
+    {
+      "day": "Sun",
+      "level": "intermediate",
+      "duration_min": 35,
+      "warmup": [
+        {
+          "movement": "Marching In Place",
+          "time_sec": 120
+        },
+        {
+          "movement": "Cat-Camel",
+          "reps": 10
+        },
+        {
+          "movement": "Ankle Circles",
+          "reps_each": 10
+        }
+      ],
+      "main": [
+        {
+          "movement": "Goblet Squat",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_knee_pain": "Sit-to-Stand"
+        },
+        {
+          "movement": "Incline Push-up",
+          "sets": 4,
+          "reps": 10,
+          "progress_to": "Full Push-up"
+        },
+        {
+          "movement": "Romanian Deadlift (DB)",
+          "sets": 4,
+          "reps": 8,
+          "alt_if_back_pain": "Hip Hinge (dowel)"
+        },
+        {
+          "movement": "DB Row",
+          "sets": 4,
+          "reps": 10,
+          "alt": "Band Row"
+        },
+        {
+          "movement": "Banded Pallof Press",
+          "sets": 3,
+          "reps": 12
+        }
+      ],
+      "cooldown": [
+        {
+          "movement": "Hamstring Stretch",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Quad Stretch (standing)",
+          "hold_sec": 30
+        },
+        {
+          "movement": "Doorway Chest Stretch",
+          "hold_sec": 30
+        }
+      ],
+      "notes": "Use knee-friendly substitutions where needed. RPE 6-7/10."
+    }
+  ],
+  "progression_rule": "Add 1-2 reps or small load each week; deload every 4th week."
+}

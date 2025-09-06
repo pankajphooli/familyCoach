@@ -1,0 +1,31 @@
+name,category,equipment,beginner_cue,common_errors,knee_friendly,back_friendly,regressions,progressions
+Sit-to-Stand,lower,chair,"Feet hip-width, control down/up","Knees cave in, rocking",True,True,"Higher chair, assist with arms",Goblet Squat
+Wall Push-up,upper,none,"Body straight, elbows ~45°","Hips sag, flared elbows",True,True,Hands higher on wall,Incline Push-up
+Incline Push-up,upper,bench/table,"Tight core, slow lower",Flaring elbows,True,True,Wall Push-up,Knee Push-up
+Knee Push-up,upper,none,Shoulders over wrists,Neck craning,True,True,Incline Push-up,Full Push-up
+Full Push-up,upper,none,"Brace core, full ROM",Elbows too wide,True,True,Knee Push-up,Feet elevated Push-up
+Glute Bridge,core,none,"Posterior tilt, squeeze glutes",Overarching back,True,True,Shorter ROM,Single-leg Bridge
+Dead Bug,core,none,Low back pressed to floor,Rib flaring,True,True,Arms only,Opposite arm/leg full
+Bird Dog,core,none,"Hips square, slow reach",Rotating torso,True,True,Hands-only reach,Hold with light bands
+Side Plank (knees),core,none,"Hips high, straight line",Shoulder shrugging,True,True,Shorter hold,Full Side Plank
+Front Plank (knees),core,none,"Neutral spine, breathe",Butt high/low,True,True,Elevated elbows,Full Plank
+Marching In Place,cardio,none,"Light arms, tall posture",Leaning back,True,True,Slower pace,Step Jacks
+Step Jacks,cardio,none,Step side-to-side,Bouncing on toes,True,True,Marching,Low-impact Jumping Jacks
+Stationary Bike Easy,cardio,bike,"Light resistance, cadence 80+",Hunching,True,True,Short intervals,Moderate intervals
+Treadmill Walk,cardio,treadmill,"Incline 1-3%, brisk pace",Holding rails,True,True,Flat walk,Incline intervals
+Band Row,upper,band,Squeeze shoulder blades,Shrugging,True,True,Lighter band,Single-arm Row
+DB Row,upper,dumbbell,"Flat back, pull to hip",Rounding back,True,False,Supported on bench,Single-arm DB Row
+Goblet Squat,lower,dumbbell/kb,Knees track over toes,Heels lift,False,True,Sit-to-Stand,KB Front Squat
+Split Squat (short stance),lower,none,Vertical shin front leg,Knee shearing,True,True,Reduced ROM,Goblet Split Squat
+Hip Hinge (dowel),lower,dowel,"Push hips back, neutral spine",Rounding,True,True,Wall tap drill,Romanian Deadlift
+Romanian Deadlift (DB),lower,dumbbells,"Soft knees, hinge back",Rounding,True,False,Hip Hinge drill,Single-leg RDL
+Seated Overhead Press (DB),upper,dumbbells,"Core braced, press up",Arching back,True,True,Lighter weights,Standing OHP
+Banded Pallof Press,core,band,"Anti-rotate, exhale",Twisting body,True,True,Closer to anchor,Longer hold
+Cat-Camel,mobility,none,Slow flex/extend spine,Jerky movement,True,True,Shorter range,Add breath holds
+Hamstring Stretch,mobility,strap,"Flat back, mild tension",Bouncing,True,True,Bent knee,Longer hold
+Quad Stretch (standing),mobility,none,"Knees together, soft hold",Knee torquing,True,True,Use wall support,Longer hold
+Calf Stretch,mobility,wall,"Heel down, knee straight",Bouncing,True,True,Less angle,Longer hold
+Ankle Circles,mobility,none,Slow circles both ways,Rushing,True,True,Smaller circles,Larger circles
+Doorway Chest Stretch,mobility,doorway,"Elbow 90°, step through",Neck strain,True,True,Lower elbow,Longer hold
+Seated Row (Cable),upper,gym,"Neutral spine, pull to torso",Shrugging,True,False,Lighter weight,Single-arm
+Leg Press (light),lower,gym,"Feet high, depth as tolerated",Locking knees,True,True,Reduced ROM,Moderate load

@@ -1,0 +1,38 @@
+name,servings,kcal,protein_g,carbs_g,fat_g,tags,allergens,cuisine,ingredients,steps
+Masala Oats with Veggies,1,350,14,55,8,"vegetarian,indian,breakfast",gluten (if not GF oats),indian,rolled oats; mixed veggies; tomato; spices; water; salt,Dry roast oats; sauté veggies with spices; add oats and water; simmer 5-7 min.
+Paneer Bhurji Wrap,1,420,24,45,16,"vegetarian,indian,lunch","dairy,gluten (if regular wrap)",indian,paneer; onion; tomato; capsicum; spices; wholewheat wrap,Scramble paneer with veggies; fill wrap; toast 1-2 min.
+Chana Salad Bowl,1,380,18,48,12,"vegan,indian,lunch",none,indian,boiled chickpeas; cucumber; tomato; onion; lemon; masala,"Mix all; season with lemon, salt, spices."
+Grilled Chicken Tikka Bowl,1,450,40,35,16,"omnivore,high-protein,indian,dinner",dairy (yogurt),indian,chicken breast; yogurt; tikka masala; lemon; brown rice; salad,Marinate; grill/bake; serve with rice and salad.
+Tofu Stir-fry & Rice,1,430,26,55,12,"vegan,asian,dinner",soy,thai,tofu; mixed veg; soy sauce; garlic; ginger; jasmine rice,Stir-fry; add sauce; serve with rice.
+Egg Masala & Roti,1,420,23,45,14,"vegetarian,high-protein,indian,dinner","eggs,gluten (roti)",indian,eggs; onion; tomato; spices; wholewheat roti,Make curry; add boiled eggs; serve with roti.
+Greek Yogurt Parfait,1,300,22,40,6,"vegetarian,breakfast",dairy,mediterranean,greek yogurt; berries; honey; granola,"Layer yogurt, berries, granola, drizzle honey."
+Poha with Peanuts,1,360,8,60,10,"vegetarian,indian,breakfast",peanuts,indian,poha; onion; peas; peanuts; curry leaves; spices,Rinse poha; temper spices; toss ingredients; steam 2 min.
+Upma (Semolina),1,380,9,62,10,"vegetarian,indian,breakfast",gluten (semolina),indian,semolina; mixed veg; mustard seeds; curry leaves; water,Roast semolina; make tempering; add water; stir till thick.
+Omelette & Toast,1,350,22,35,12,"vegetarian,breakfast,high-protein","eggs,gluten (toast)",british,eggs; onion; tomato; spinach; wholegrain bread,Whisk eggs; cook omelette; toast bread.
+Khichdi (Moong & Rice),1,420,16,70,8,"vegetarian,indian,comfort",none,indian,moong dal; rice; turmeric; ghee; cumin,Pressure cook dal+rice with spices; temper with cumin.
+Rajma & Rice (light),1,450,18,70,8,"vegan,indian,dinner",none,indian,kidney beans; tomato; onion; spices; basmati rice,Cook rajma; simmer gravy; serve with rice.
+Grilled Fish & Quinoa,1,430,36,40,12,"pescatarian,high-protein,dinner",fish,mediterranean,white fish; lemon; herbs; quinoa; greens,Season fish; grill; cook quinoa; serve with greens.
+Chicken Salad Wrap,1,420,34,40,12,"omnivore,lunch",gluten (wrap),american,chicken; lettuce; tomato; light mayo/yogurt; wrap,Mix filling; roll in wrap.
+Dal Tadka & Roti,1,400,18,58,10,"vegan,indian,dinner","none (if oil, no ghee)",indian,toor/moong dal; onion; tomato; spices; roti,Cook dal; temper with spices; serve with roti.
+Paneer & Veg Pulao,1,480,20,65,14,"vegetarian,indian,one-pot",dairy,indian,paneer; basmati rice; peas; carrot; spices,Sauté; add rice+water; cook 12-15 min.
+Sprouts Bhel (light),1,280,16,40,6,"vegan,indian,snack",none,indian,moong sprouts; onion; tomato; lemon; spices,Mix all; add lemon and spice.
+Overnight Oats (PB),1,380,18,45,12,"vegetarian,breakfast","peanuts,dairy (if milk)",american,oats; milk/alt; peanut butter; banana; chia,Combine; refrigerate overnight.
+Besan Chilla,1,320,14,40,10,"vegan,indian,breakfast",none,indian,gram flour; onion; tomato; spices; oil spray,Make batter; cook crepes both sides.
+Idli-Sambar (light),1,420,16,70,6,"vegetarian,indian,breakfast",none,indian,idli batter; sambar veggies; dal; spices,Steam idlis; prepare sambar.
+Tuna Chickpea Salad,1,410,34,36,12,"pescatarian,high-protein,lunch",fish,mediterranean,canned tuna; chickpeas; olive; tomato; cucumber; lemon,Mix all; season.
+Tofu Bhurji on Toast,1,360,24,40,10,"vegan,indian,breakfast","soy,gluten (toast)",indian,tofu; onion; tomato; spices; toast,Scramble tofu; serve on toast.
+Veggie Dal Soup,1,320,18,48,6,"vegan,indian,soup",none,indian,mixed veg; moong dal; spices; water,Simmer till soft; blend partially.
+Grilled Paneer Salad,1,380,24,35,14,"vegetarian,high-protein,lunch",dairy,indian,paneer; greens; cucumber; tomato; lemon; chaat masala,Grill paneer; toss salad.
+Chicken & Veg Pulao (light),1,470,36,55,12,"omnivore,indian,one-pot",none,indian,chicken; rice; peas; carrot; spices,Sauté chicken; add rice+water; cook.
+Egg Fried Rice (brown),1,430,20,60,12,"vegetarian,asian","eggs,soy (if soy sauce)",chinese,brown rice; eggs; peas; carrots; soy sauce,Stir-fry rice and veg; add eggs; season.
+Quinoa Chole Bowl,1,430,18,60,10,"vegan,indian,lunch",none,indian,quinoa; chana; onion; tomato; spices,Cook quinoa; simmer chana; assemble.
+Ragi Dosa & Chutney,1,360,10,60,8,"vegan,indian,breakfast",none,indian,ragi flour; dosa batter; coconut chutney,Make dosas; serve with chutney.
+Mediterranean Egg Bowl,1,390,24,30,16,"vegetarian,breakfast","eggs,dairy (feta)",mediterranean,eggs; cherry tomato; cucumber; olives; feta; pita,Assemble bowl; optional pita.
+Moonglet (Dal Omelette),1,340,20,42,8,"vegan,indian,breakfast",none,indian,soaked moong; spices; onion; tomato,Blend; pan-cook thick omelette.
+Chicken Keema & Peas,1,450,36,30,16,"omnivore,indian,dinner",none,indian,chicken mince; peas; onion; tomato; spices,Sauté mince; add peas; simmer.
+Palak Paneer Light,1,420,24,32,18,"vegetarian,indian,dinner",dairy,indian,spinach; paneer; onion; tomato; spices; light cream(optional),Blanch spinach; blend; simmer with paneer.
+Fish Curry (Coconut light),1,440,34,38,16,"pescatarian,indian,dinner",fish,indian,white fish; coconut milk light; curry spices; rice,Simmer curry; add fish; serve with rice.
+Veg Pita Pocket,1,360,12,55,8,"vegetarian,lunch",gluten (pita),middle eastern,pita; hummus; veggies; lettuce; lemon,Stuff pita with fillings.
+Protein Smoothie (Berry),1,320,25,35,8,"vegetarian,breakfast",dairy (whey),american,whey/alt protein; berries; milk/alt; oats,Blend till smooth.
+Mixed Bean Burrito (light),1,450,20,60,12,"vegan,mexican,lunch",gluten (wrap),mexican,beans; rice; salsa; lettuce; wrap,Assemble and roll.
+Curd Rice (light),1,380,12,62,8,"vegetarian,indian,comfort",dairy,indian,cooked rice; curd; tempering spices,Mix rice with curd; add tempering.

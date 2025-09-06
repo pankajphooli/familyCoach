@@ -1,0 +1,107 @@
+{
+  "version": "1.0",
+  "plan_type": "template",
+  "veg": [
+    {
+      "day": "Mon",
+      "breakfast": "Masala Oats with Veggies",
+      "lunch": "Chana Salad Bowl",
+      "snack": "Sprouts Bhel (light)",
+      "dinner": "Khichdi (Moong & Rice)"
+    },
+    {
+      "day": "Tue",
+      "breakfast": "Besan Chilla",
+      "lunch": "Grilled Paneer Salad",
+      "snack": "Protein Smoothie (Berry)",
+      "dinner": "Palak Paneer Light"
+    },
+    {
+      "day": "Wed",
+      "breakfast": "Ragi Dosa & Chutney",
+      "lunch": "Quinoa Chole Bowl",
+      "snack": "Tofu Bhurji on Toast",
+      "dinner": "Tofu Stir-fry & Rice"
+    },
+    {
+      "day": "Thu",
+      "breakfast": "Greek Yogurt Parfait",
+      "lunch": "Dal Tadka & Roti",
+      "snack": "Veggie Dal Soup",
+      "dinner": "Egg Masala & Roti"
+    },
+    {
+      "day": "Fri",
+      "breakfast": "Upma (Semolina)",
+      "lunch": "Paneer & Veg Pulao",
+      "snack": "Poha with Peanuts",
+      "dinner": "Paneer Bhurji Wrap"
+    },
+    {
+      "day": "Sat",
+      "breakfast": "Idli-Sambar (light)",
+      "lunch": "Rajma & Rice (light)",
+      "snack": "Chana Salad Bowl",
+      "dinner": "Dal Tadka & Roti"
+    },
+    {
+      "day": "Sun",
+      "breakfast": "Overnight Oats (PB)",
+      "lunch": "Veg Pita Pocket",
+      "snack": "Mixed Bean Burrito (light)",
+      "dinner": "Tofu Stir-fry & Rice"
+    }
+  ],
+  "nonveg": [
+    {
+      "day": "Mon",
+      "breakfast": "Omelette & Toast",
+      "lunch": "Chicken Salad Wrap",
+      "snack": "Sprouts Bhel (light)",
+      "dinner": "Grilled Fish & Quinoa"
+    },
+    {
+      "day": "Tue",
+      "breakfast": "Greek Yogurt Parfait",
+      "lunch": "Tuna Chickpea Salad",
+      "snack": "Protein Smoothie (Berry)",
+      "dinner": "Chicken Keema & Peas"
+    },
+    {
+      "day": "Wed",
+      "breakfast": "Masala Oats with Veggies",
+      "lunch": "Grilled Chicken Tikka Bowl",
+      "snack": "Veggie Dal Soup",
+      "dinner": "Fish Curry (Coconut light)"
+    },
+    {
+      "day": "Thu",
+      "breakfast": "Mediterranean Egg Bowl",
+      "lunch": "Veg Pita Pocket",
+      "snack": "Tofu Bhurji on Toast",
+      "dinner": "Egg Fried Rice (brown)"
+    },
+    {
+      "day": "Fri",
+      "breakfast": "Overnight Oats (PB)",
+      "lunch": "Paneer & Veg Pulao",
+      "snack": "Chana Salad Bowl",
+      "dinner": "Grilled Chicken Tikka Bowl"
+    },
+    {
+      "day": "Sat",
+      "breakfast": "Poha with Peanuts",
+      "lunch": "Quinoa Chole Bowl",
+      "snack": "Grilled Paneer Salad",
+      "dinner": "Dal Tadka & Roti"
+    },
+    {
+      "day": "Sun",
+      "breakfast": "Ragi Dosa & Chutney",
+      "lunch": "Chicken & Veg Pulao (light)",
+      "snack": "Mixed Bean Burrito (light)",
+      "dinner": "Chicken & Veg Pulao (light)"
+    }
+  ],
+  "notes": "Swap within the same meal slot to fit macros. Respect allergies/patterns."
+}
