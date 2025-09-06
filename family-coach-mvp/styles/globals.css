@@ -77,3 +77,47 @@ html, body{ background: var(--bg); color: var(--ink); }
 .grid-2{grid-template-columns: repeat(2,minmax(0,1fr))}
 .grid-3{grid-template-columns: repeat(3,minmax(0,1fr))}
 @media (max-width: 900px){ .grid-2,.grid-3{ grid-template-columns: 1fr } }
+
+
+/* === Button palette update === */
+.button{
+  background: #000000;
+  color: #ffffff;
+  border: 1px solid #000000;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.button:hover{ opacity: .9 }
+.dark .button{
+  background: #ffffff;
+  color: #000000;
+  border-color: #ffffff;
+}
+
+/* Ghost button stays outline but adapts contrast */
+.button.ghost{
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid rgba(0,0,0,.24);
+}
+.dark .button.ghost{
+  color: #fff;
+  border-color: rgba(255,255,255,.35);
+}
+
+/* === Checkbox tiles visibility (Calendar "All-day" etc.) === */
+.checkbox-group{ display:flex; gap:10px; flex-wrap:wrap }
+.checkbox-item{
+  display:inline-flex; gap:8px; align-items:center;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid rgba(0,0,0,.12);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.dark .checkbox-item{
+  border-color: rgba(255,255,255,.18);
+}
+.checkbox-item input{ accent-color: var(--ink); }
