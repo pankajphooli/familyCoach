@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { createClient } from '../../lib/supabaseClient'
+import { createClient } from '../lib/supabaseClient'
 
 function Movement({ name }: { name: string }){
   const [info, setInfo] = useState<any>(null)
