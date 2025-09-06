@@ -14,6 +14,7 @@ create table if not exists public.family_members (
   family_id uuid not null references public.families(id) on delete cascade,
   user_id uuid not null,
   role text not null default 'member',
+  can_manage_members boolean not null default false,
   created_at timestamptz not null default now()
 );
 
