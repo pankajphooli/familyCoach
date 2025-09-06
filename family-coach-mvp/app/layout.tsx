@@ -1,4 +1,3 @@
-
 import '../styles/globals.css'
 import Link from 'next/link'
 
@@ -9,21 +8,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }){
     <html lang="en">
       <body>
         <div className="container">
-          <header className="flex" style={{justifyContent:'space-between', marginBottom:16}}>
-            <div className="flex" style={{gap:8}}>
+          <header className="site-header">
+            <div className="brand">
               <span className="badge">MVP</span>
               <b>Family Coach</b>
             </div>
-            <nav className="flex" style={{gap:16}}>
+            <nav className="topnav">
               <Link href="/">Home</Link>
-              <Link href="/onboarding">Onboarding</Link>
               <Link href="/family">Family</Link>
               <Link href="/today">Today</Link>
               <Link href="/progress">Progress</Link>
             </nav>
           </header>
           {children}
-          <footer style={{marginTop:24}}>
+          <footer className="site-footer">
             <small className="muted">Wellness guidance only. Not medical advice.</small>
           </footer>
         </div>
