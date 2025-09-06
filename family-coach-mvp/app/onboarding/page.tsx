@@ -1,4 +1,3 @@
-
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -16,12 +15,29 @@ export default function Onboarding(){
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
+  // Family inline
   const [familyMode, setFamilyMode] = useState<'none' | 'create' | 'join'>('create')
   const [familyName, setFamilyName] = useState('')
   const [inviteCode, setInviteCode] = useState('')
 
+  // Custom adders
   const [injuryInput, setInjuryInput] = useState('')
   const [injuriesExtra, setInjuriesExtra] = useState<string[]>([])
+
+  const [conditionsInput, setConditionsInput] = useState('')
+  const [conditionsExtra, setConditionsExtra] = useState<string[]>([])
+
+  const [equipInput, setEquipInput] = useState('')
+  const [equipExtra, setEquipExtra] = useState<string[]>([])
+
+  const [allergyInput, setAllergyInput] = useState('')
+  const [allergyExtra, setAllergyExtra] = useState<string[]>([])
+
+  const [cuisineInput, setCuisineInput] = useState('')
+  const [cuisineExtra, setCuisineExtra] = useState<string[]>([])
+
+  const [dislikeInput, setDislikeInput] = useState('')
+  const [dislikesExtra, setDislikesExtra] = useState<string[]>([])
 
   useEffect(()=>{
     fetch('/data/questionnaire_schema_v1.json').then(r=>r.json()).then(setSchema)
@@ -43,11 +59,25 @@ export default function Onboarding(){
 
   const handleChange = (id:string, val:any) => setValues(v=>({...v, [id]:val}))
 
-  const addInjury = () => {
-    const t = injuryInput.trim()
+  const addTo = (which: 'injuries'|'conditions'|'equipment'|'allergies'|'cuisines'|'dislikes') => {
+    const map: any = {
+      injuries: [injuryInput, setInjuryInput, injuriesExtra, setInjuriesExtra],
+      conditions: [conditionsInput, setConditionsInput, conditionsExtra, setConditionsExtra],
+      equipment: [equipInput, setEquipInput, equipExtra, setEquipExtra],
+      allergies: [allergyInput, setAllergyInput, allergyExtra, setAllergyExtra],
+      cuisines: [cuisineInput, setCuisineInput, cuisineExtra, setCuisineExtra],
+      dislikes: [dislikeInput, setDislikeInput, dislikesExtra, setDislikesExtra],
+    }
+    const [val, setVal, arr, setArr] = map[which] as [string, any, string[], any]
+    const t = (val||'').trim()
     if(!t) return
-    setInjuriesExtra(prev => prev.includes(t) ? prev : [...prev, t])
-    setInjuryInput('')
+    if (!arr.includes(t)) setArr([...arr, t])
+    setVal('')
+  }
+
+  const merged = (id:string, extras:string[]) => {
+    const base = Array.isArray(values[id]) ? values[id] : []
+    return [...base, ...extras].filter(Boolean)
   }
 
   const saveProfileAndFamily = async() => {
@@ -56,6 +86,7 @@ export default function Onboarding(){
       const { data: { user } } = await supabase.auth.getUser()
       if(!user){ alert('Please sign in first'); setSaving(false); return }
 
+      // Create or join a family (optional)
       let family_id: string | null = null
       if (familyMode === 'create' && familyName.trim()){
         const invite_code = Math.random().toString(36).slice(2,8)
@@ -78,9 +109,14 @@ export default function Onboarding(){
         if (mErr) { alert(mErr.message); setSaving(false); return }
       }
 
-      const selectedInjuries = Array.isArray(values['injuries']) ? values['injuries'] : []
-      const injuries = [...selectedInjuries, ...injuriesExtra].filter(Boolean)
+      const injuries = merged('injuries', injuriesExtra)
+      const conditions = merged('conditions', conditionsExtra)
+      const equipment = merged('equipment', equipExtra)
+      const allergies = merged('allergies', allergyExtra)
+      const cuisines = merged('cuisines', cuisineExtra)
+      const dislikes = dislikesExtra.join(', ')  // store as text CSV to avoid schema change
 
+      // Build profile payload
       const payload:any = {
         id: user.id,
         family_id,
@@ -93,19 +129,19 @@ export default function Onboarding(){
         target_date: values['target_date'] || null,
         activity_level: values['activity_level'] || 'sedentary (little/no exercise)',
         dietary_pattern: values['dietary_pattern'] || 'non-veg',
-        allergies: Array.isArray(values['allergies']) ? values['allergies'] : [],
-        dislikes: values['dislikes'] || null,
-        cuisines: Array.isArray(values['cuisines']) ? values['cuisines'] : [],
+        allergies,
+        dislikes,
+        cuisines,
         budget_level: values['budget_level'] || null,
         meals_per_day: values['meals_per_day'] ? Number(values['meals_per_day']) : 3,
         fasting_window: values['fasting_window'] || null,
         primary_goal: values['primary_goal'] || 'fat loss',
         secondary_goal: values['secondary_goal'] || null,
-        equipment: Array.isArray(values['equipment']) ? values['equipment'] : [],
+        equipment,
         step_goal: values['step_goal'] ? Number(values['step_goal']) : null,
         sleep_hours: values['sleep_hours'] ? Number(values['sleep_hours']) : null,
         time_per_workout_min: values['time_per_workout_min'] ? Number(values['time_per_workout_min']) : 25,
-        conditions: Array.isArray(values['conditions']) ? values['conditions'] : [],
+        conditions,
         injuries
       }
 
@@ -148,17 +184,24 @@ export default function Onboarding(){
                         </label>
                       )
                     })}
-                    {f.id === 'injuries' && (
+                    {['injuries','conditions','equipment','allergies','cuisines'].includes(f.id) && (
                       <div style={{gridColumn:'1 / -1'}}>
                         <div className="grid grid-2">
-                          <input className="input" placeholder="Add another injury…" value={injuryInput} onChange={e=>setInjuryInput(e.target.value)} />
-                          <button className="button" onClick={addInjury} type="button">Add</button>
+                          <input className="input" placeholder={"Add another " + f.id.slice(0,-1) + "…"} value={
+                            f.id==='injuries'?injuryInput: f.id==='conditions'?conditionsInput: f.id==='equipment'?equipInput: f.id==='allergies'?allergyInput: cuisineInput
+                          } onChange={(e)=>{
+                            const v = e.target.value
+                            if (f.id==='injuries') setInjuryInput(v)
+                            else if (f.id==='conditions') setConditionsInput(v)
+                            else if (f.id==='equipment') setEquipInput(v)
+                            else if (f.id==='allergies') setAllergyInput(v)
+                            else setCuisineInput(v)
+                          }} />
+                          <button className="button" onClick={()=>addTo(f.id as any)} type="button">Add</button>
                         </div>
-                        {injuriesExtra.length > 0 && (
-                          <div className="pills" style={{marginTop:8}}>
-                            {injuriesExtra.map(x => <span key={x} className="pill">{x}</span>)}
-                          </div>
-                        )}
+                        <div className="pills" style={{marginTop:8}}>
+                          {(f.id==='injuries'?injuriesExtra: f.id==='conditions'?conditionsExtra: f.id==='equipment'?equipExtra: f.id==='allergies'?allergyExtra: cuisineExtra).map(x => <span key={x} className="pill">{x}</span>)}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -170,6 +213,19 @@ export default function Onboarding(){
                     disabled={f.id==='email'}
                   />
                 )}
+                {f.id==='dislikes' && (
+                  <div style={{marginTop:8}}>
+                    <div className="grid grid-2">
+                      <input className="input" placeholder="Add a food you dislike…" value={dislikeInput} onChange={e=>setDislikeInput(e.target.value)} />
+                      <button className="button" onClick={()=>addTo('dislikes')} type="button">Add</button>
+                    </div>
+                    {dislikesExtra.length>0 && (
+                      <div className="pills" style={{marginTop:8}}>
+                        {dislikesExtra.map(x => <span key={x} className="pill">{x}</span>)}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -177,6 +233,7 @@ export default function Onboarding(){
         </div>
       ))}
 
+      {/* Family setup embedded in onboarding */}
       <div>
         <h3>Family</h3>
         <div style={{display:'flex',gap:16,marginBottom:8}}>
