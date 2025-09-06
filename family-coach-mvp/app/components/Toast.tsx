@@ -16,7 +16,8 @@ export default function ToastHost(){
     <div style={{position:'fixed',top:16,right:16,display:'flex',flexDirection:'column',gap:10,zIndex:9999}}>
       {toasts.map(t => (
         <div key={t.id} style={{background: t.type==='error' ? '#fee2e2' : (t.type==='success' ? '#dcfce7' : '#e0f2fe'), color: '#111827', border:'1px solid rgba(0,0,0,.1)', borderRadius:12, padding:'10px 12px'}}>
-          <b style={{marginRight:8}}>{t.type==='error' ? 'Uh-oh!' : (t.type==='success' ? 'Nice!' : 'Heads up')}</b><span>{t.text}</span>
+          <b style={{marginRight:8}}>{t.type==='error' ? 'Uh‑oh!' : (t.type==='success' ? 'Nice!' : 'Heads up')}</b>
+          <span>{t.text}</span>
         </div>
       ))}
     </div>
