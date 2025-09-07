@@ -31,6 +31,9 @@ export default function Plans(){
   const [replacingId,setReplacingId]=useState<string|null>(null)
   const [options,setOptions]=useState<any[]>([])
 
+  const [busyDiet,setBusyDiet]=useState(false)
+  const [busyWorkout,setBusyWorkout]=useState(false)
+
   const todayStr=useMemo(()=> ymdLocal(new Date()), [])
 
   useEffect(()=>{ loadAll() },[])
@@ -73,6 +76,7 @@ export default function Plans(){
     const meals=[{meal_type:'breakfast',recipe_name:isVeg?'Veg Oats Bowl':'Scrambled Eggs'},{meal_type:'lunch',recipe_name:isVeg?'Paneer Bowl':'Grilled Chicken Bowl'},{meal_type:'snack',recipe_name:'Greek Yogurt & Fruit'},{meal_type:'dinner',recipe_name:isVeg?'Tofu Stir-fry':'Salmon & Veg'}]
     const pm=await supabase.from('plan_meals').insert(meals.map(m=>({...m,plan_day_id:ins.data.id}))); if(pm.error) throw pm.error
   }
+
   async function ensureWorkoutForDate(user_id:string,date:string){
     const existing=await supabase.from('workout_days').select('id').eq('user_id',user_id).eq('date',date).maybeSingle(); if(existing.error) throw existing.error; if(existing.data) return
     const ins=await supabase.from('workout_days').insert({user_id,date}).select().single(); if(ins.error) throw ins.error
@@ -80,16 +84,34 @@ export default function Plans(){
     const wb=await supabase.from('workout_blocks').insert(blocks.map(b=>({...b,workout_day_id:ins.data.id}))); if(wb.error) throw wb.error
   }
 
-  const [busyDiet,setBusyDiet]=useState(false)
-  const [busyWorkout,setBusyWorkout]=useState(false)
-
-  async function onGenerateDietToday(){ setBusyDiet=TrueSafe(setBusyDiet,true); await handle(async()=>{ const {data:{user}}=await supabase.auth.getUser(); if(!user){notify('error','Sign in first'); return} await ensureDietForDate(user.id,todayStr); notify('success','Diet generated for today'); await loadAll() }) }
-  async function onGenerateDietWeek(){ setBusyDiet=TrueSafe(setBusyDiet,true); await handle(async()=>{ const {data:{user}}=await supabase.auth.getUser(); if(!user){notify('error','Sign in first'); return} const mon=mondayOfWeekContaining(new Date()); for(const d of datesMonToSun(mon)) await ensureDietForDate(user.id, ymdLocal(d)); notify('success','Diet generated for this week'); await loadAll() }) }
-  async function onGenerateWorkoutToday(){ setBusyWorkout=TrueSafe(setBusyWorkout,true); await handle(async()=>{ const {data:{user}}=await supabase.auth.getUser(); if(!user){notify('error','Sign in first'); return} await ensureWorkoutForDate(user.id,todayStr); notify('success','Workout generated for today'); await loadAll() }) }
-  async function onGenerateWorkoutWeek(){ setBusyWorkout=TrueSafe(setBusyWorkout,true); await handle(async()=>{ const {data:{user}}=await supabase.auth.getUser(); if(!user){notify('error','Sign in first'); return} const mon=mondayOfWeekContaining(new Date()); for(const d of datesMonToSun(mon)) await ensureWorkoutForDate(user.id, ymdLocal(d)); notify('success','Workout generated for this week'); await loadAll() }) }
-
-  async function handle(fn:()=>Promise<void>){ try{ setLastError(''); await fn() } catch(e:any){ console.error(e); setLastError(e?.message||String(e)); notify('error','Error: '+(e?.message||'')) } finally { setBusyDiet(false); setBusyWorkout(false) } }
-  function TrueSafe(setter:(v:boolean)=>void, v:boolean){ try{ setter(v) }catch{} return true }
+  async function onGenerateDietToday(){
+    setBusyDiet(true); setLastError('')
+    try{ const {data:{user}}=await supabase.auth.getUser(); if(!user){ notify('error','Sign in first'); return }
+      await ensureDietForDate(user.id, todayStr); notify('success','Diet generated for today'); await loadAll()
+    }catch(e:any){ console.error(e); setLastError(e?.message||String(e)); notify('error','Diet failed: ' + (e?.message||'')) }
+    finally{ setBusyDiet(false) }
+  }
+  async function onGenerateDietWeek(){
+    setBusyDiet(true); setLastError('')
+    try{ const {data:{user}}=await supabase.auth.getUser(); if(!user){ notify('error','Sign in first'); return }
+      const mon=mondayOfWeekContaining(new Date()); for(const d of datesMonToSun(mon)) await ensureDietForDate(user.id, ymdLocal(d)); notify('success','Diet generated for this week'); await loadAll()
+    }catch(e:any){ console.error(e); setLastError(e?.message||String(e)); notify('error','Week diet failed: ' + (e?.message||'')) }
+    finally{ setBusyDiet(false) }
+  }
+  async function onGenerateWorkoutToday(){
+    setBusyWorkout(true); setLastError('')
+    try{ const {data:{user}}=await supabase.auth.getUser(); if(!user){ notify('error','Sign in first'); return }
+      await ensureWorkoutForDate(user.id, todayStr); notify('success','Workout generated for today'); await loadAll()
+    }catch(e:any){ console.error(e); setLastError(e?.message||String(e)); notify('error','Workout failed: ' + (e?.message||'')) }
+    finally{ setBusyWorkout(false) }
+  }
+  async function onGenerateWorkoutWeek(){
+    setBusyWorkout(true); setLastError('')
+    try{ const {data:{user}}=await supabase.auth.getUser(); if(!user){ notify('error','Sign in first'); return }
+      const mon=mondayOfWeekContaining(new Date()); for(const d of datesMonToSun(mon)) await ensureWorkoutForDate(user.id, ymdLocal(d)); notify('success','Workout generated for this week'); await loadAll()
+    }catch(e:any){ console.error(e); setLastError(e?.message||String(e)); notify('error','Week workout failed: ' + (e?.message||'')) }
+    finally{ setBusyWorkout(false) }
+  }
 
   async function openIngredients(meal:Meal){
     const rec=await supabase.from('recipes').select('ingredients, url').ilike('name',meal.recipe_name).maybeSingle()
