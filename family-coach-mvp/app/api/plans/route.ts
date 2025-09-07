@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { createAdmin } from '@/app/lib/supabaseAdmin'
+
+function ymdLocal(d: Date){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}` }
+function mondayOfWeekContaining(d: Date){ const dow=d.getDay()||7; const mon=new Date(d); mon.setDate(d.getDate()-(dow-1)); mon.setHours(0,0,0,0); return mon }
+function datesMonToSun(mon: Date){ return Array.from({length:7},(_,i)=>{ const x=new Date(mon); x.setDate(mon.getDate()+i); return x }) }
 
 export async function POST(req: Request) {
   try {
@@ -9,16 +11,14 @@ export async function POST(req: Request) {
     const scope = body?.scope as string | undefined
     if (!scope) return NextResponse.json({ error: 'Missing scope' }, { status: 400 })
 
-    const cookieStore = cookies()
-    const supaServer = createRouteHandlerClient({ cookies: () => cookieStore })
-    const { data: { user } } = await supaServer.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Not signed in' }, { status: 401 })
+    // Get access token from Authorization header
+    const auth = req.headers.get('authorization') || ''
+    const token = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7) : null
+    if (!token) return NextResponse.json({ error: 'No auth token' }, { status: 401 })
 
     const admin = createAdmin()
-
-    function ymdLocal(d: Date){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}` }
-    function mondayOfWeekContaining(d: Date){ const dow=d.getDay()||7; const mon=new Date(d); mon.setDate(d.getDate()-(dow-1)); mon.setHours(0,0,0,0); return mon }
-    function datesMonToSun(mon: Date){ return Array.from({length:7},(_,i)=>{ const x=new Date(mon); x.setDate(mon.getDate()+i); return x }) }
+    const { data: { user }, error: userErr } = await admin.auth.getUser(token)
+    if (userErr || !user) return NextResponse.json({ error: 'Invalid session' }, { status: 401 })
 
     const todayStr = ymdLocal(new Date())
 
@@ -48,8 +48,8 @@ export async function POST(req: Request) {
       const pattern=String((prof.data as any)?.dietary_pattern||'non-veg').toLowerCase()
       const isVeg=pattern.includes('veg') && !pattern.includes('non-veg')
       const meals=[
-        {meal_type:'breakfast',recipe_name:isVeg?'Veg Oats Bowl':'Scrambled Eggs'},
-        {meal_type:'lunch',    recipe_name:isVeg?'Paneer Bowl':'Grilled Chicken Bowl'},
+        {meal_type:'breakfast',recipe_name=isVeg?'Veg Oats Bowl':'Scrambled Eggs'},
+        {meal_type:'lunch',    recipe_name=isVeg?'Paneer Bowl':'Grilled Chicken Bowl'},
         {meal_type:'snack',    recipe_name:'Greek Yogurt & Fruit'},
         {meal_type:'dinner',   recipe_name=isVeg?'Tofu Stir-fry':'Salmon & Veg'}
       ].map(m=>({ ...m, plan_day_id: ins.data.id }))
@@ -90,7 +90,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true })
   } catch (e:any) {
-    console.error('/api/plans/generate error', e)
+    console.error('/api/plans error', e)
     return NextResponse.json({ error: e?.message || String(e) }, { status: 500 })
   }
 }

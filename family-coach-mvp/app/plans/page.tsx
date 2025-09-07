@@ -38,7 +38,6 @@ export default function Plans(){
   const todayStr=useMemo(()=> ymdLocal(new Date()), [])
 
   useEffect(()=>{
-    // Wait for session, then load. Also react to auth state changes.
     const run = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       setHasUser(!!session?.user)
@@ -112,7 +111,25 @@ export default function Plans(){
     }catch(e:any){ console.error('loadAll error',e); setLastError(e?.message||String(e)); setStatus('error') }
   }
 
-  function kcalFromProfile(p:any){ const age=p?.dob?Math.max(18,Math.floor((Date.now()-new Date(p.dob).getTime())/(365.25*24*3600*1000))):30; const w=Number(p?.weight_kg)||70, h=Number(p?.height_cm)||170; const sex=String(p?.sex||'male').toLowerCase(); const bmr=sex==='female'?(10*w+6.25*h-5*age-161):(10*w+6.25*h-5*age+5); const multMap:any={'sedentary (little/no exercise)':1.2,'lightly active (1-3 days/week)':1.375,'moderately active (3-5 days/week)':1.55,'very active (6-7 days/week)':1.725,'athlete (2x/day)':1.9}; const mult=multMap[p?.activity_level||'sedentary (little/no exercise)']||1.2; let total=Math.round(bmr*mult); const goal=String(p?.primary_goal||'').toLowerCase(); if(goal.includes('fat')) total=Math.round(total*0.85); if(goal.includes('muscle')) total=Math.round(total*1.10); return total }
+  function kcalFromProfile(p:any){
+    const age=p?.dob?Math.max(18,Math.floor((Date.now()-new Date(p.dob).getTime())/(365.25*24*3600*1000))):30
+    const w=Number(p?.weight_kg)||70, h=Number(p?.height_cm)||170
+    const sex=String(p?.sex||'male').toLowerCase()
+    const bmr=sex==='female'?(10*w+6.25*h-5*age-161):(10*w+6.25*h-5*age+5)
+    const multMap:any={
+      'sedentary (little/no exercise)':1.2,
+      'lightly active (1-3 days/week)':1.375,
+      'moderately active (3-5 days/week)':1.55,
+      'very active (6-7 days/week)':1.725,
+      'athlete (2x/day)':1.9
+    }
+    const mult = multMap[p?.activity_level || 'sedentary (little/no exercise)'] || 1.2
+    let total = Math.round(bmr*mult)
+    const goal = String(p?.primary_goal||'').toLowerCase()
+    if (goal.includes('fat')) total = Math.round(total*0.85)
+    if (goal.includes('muscle')) total = Math.round(total*1.10)
+    return total
+  }
 
   async function ensureDietForDate(user_id:string,date:string){
     const existing=await supabase.from('plan_days').select('id').eq('user_id',user_id).eq('date',date).maybeSingle(); if(existing.error) throw existing.error; if(existing.data) return
@@ -120,14 +137,23 @@ export default function Plans(){
     const total_kcal=kcalFromProfile(profQ.data)
     const ins=await supabase.from('plan_days').insert({user_id,date,total_kcal}).select().single(); if(ins.error) throw ins.error
     const pattern=String((profQ.data as any)?.dietary_pattern||'non-veg').toLowerCase(); const isVeg=pattern.includes('veg') && !pattern.includes('non-veg')
-    const meals=[{meal_type:'breakfast',recipe_name:isVeg?'Veg Oats Bowl':'Scrambled Eggs'},{meal_type:'lunch',recipe_name:isVeg?'Paneer Bowl':'Grilled Chicken Bowl'},{meal_type:'snack',recipe_name:'Greek Yogurt & Fruit'},{meal_type:'dinner',recipe_name:isVeg?'Tofu Stir-fry':'Salmon & Veg'}]
+    const meals=[
+      {meal_type:'breakfast',recipe_name:isVeg?'Veg Oats Bowl':'Scrambled Eggs'},
+      {meal_type:'lunch',    recipe_name:isVeg?'Paneer Bowl':'Grilled Chicken Bowl'},
+      {meal_type:'snack',    recipe_name:'Greek Yogurt & Fruit'},
+      {meal_type:'dinner',   recipe_name:isVeg?'Tofu Stir-fry':'Salmon & Veg'}
+    ]
     const pm=await supabase.from('plan_meals').insert(meals.map(m=>({...m,plan_day_id:ins.data.id}))); if(pm.error) throw pm.error
   }
 
   async function ensureWorkoutForDate(user_id:string,date:string){
     const existing=await supabase.from('workout_days').select('id').eq('user_id',user_id).eq('date',date).maybeSingle(); if(existing.error) throw existing.error; if(existing.data) return
     const ins=await supabase.from('workout_days').insert({user_id,date}).select().single(); if(ins.error) throw ins.error
-    const blocks=[{type:'Warm-up',movements:[{name:'Joint mobility flow'}]},{type:'Circuit',movements:[{name:'Glute bridges'},{name:'Step-ups (low box)'},{name:'Wall push-ups'}]},{type:'Cool-down',movements:[{name:'Breathing & stretch'}]}]
+    const blocks=[
+      {type:'Warm-up',  movements:[{name:'Joint mobility flow'}]},
+      {type:'Circuit',  movements:[{name:'Glute bridges'},{name:'Step-ups (low box)'},{name:'Wall push-ups'}]},
+      {type:'Cool-down',movements:[{name:'Breathing & stretch'}]}
+    ]
     const wb=await supabase.from('workout_blocks').insert(blocks.map(b=>({...b,workout_day_id:ins.data.id}))); if(wb.error) throw wb.error
   }
 
@@ -138,7 +164,6 @@ export default function Plans(){
     }catch(e:any){ console.error(e); setLastError(e?.message||String(e)); notify('error','Diet failed: ' + (e?.message||'')) }
     finally{ setBusyDiet(false) }
   }
-
   async function onGenerateDietWeek(){
     setBusyDiet(true); setLastError('')
     try{ const { data: { session } } = await supabase.auth.getSession(); const userId=session?.user?.id; if(!userId){ notify('error','Please sign in again'); return }
@@ -146,7 +171,6 @@ export default function Plans(){
     }catch(e:any){ console.error(e); setLastError(e?.message||String(e)); notify('error','Week diet failed: ' + (e?.message||'')) }
     finally{ setBusyDiet(false) }
   }
-
   async function onGenerateWorkoutToday(){
     setBusyWorkout(true); setLastError('')
     try{ const { data: { session } } = await supabase.auth.getSession(); const userId=session?.user?.id; if(!userId){ notify('error','Please sign in again'); return }
@@ -154,7 +178,6 @@ export default function Plans(){
     }catch(e:any){ console.error(e); setLastError(e?.message||String(e)); notify('error','Workout failed: ' + (e?.message||'')) }
     finally{ setBusyWorkout(false) }
   }
-
   async function onGenerateWorkoutWeek(){
     setBusyWorkout(true); setLastError('')
     try{ const { data: { session } } = await supabase.auth.getSession(); const userId=session?.user?.id; if(!userId){ notify('error','Please sign in again'); return }
@@ -184,7 +207,9 @@ export default function Plans(){
   }
   async function replaceMeal(meal:Meal, recipe_name:string){
     const upd=await supabase.from('plan_meals').update({recipe_name}).eq('id',meal.id); if(upd.error){ setLastError(upd.error.message); notify('error','Replace failed'); return }
-    setReplacingId(null); setOptions([]); const { data: { session } } = await supabase.auth.getSession(); const userId=session?.user?.id; if(userId) await loadAll(userId); notify('success','Meal swapped 🤝')
+    setReplacingId(null); setOptions([])
+    const { data: { session } } = await supabase.auth.getSession(); const userId=session?.user?.id; if(userId) await loadAll(userId)
+    notify('success','Meal swapped 🤝')
   }
 
   return (
@@ -215,9 +240,31 @@ export default function Plans(){
               <label className="checkbox-item"><input type="radio" name="dietview" checked={dietView==='week'} onChange={()=>setDietView('week')} /> This week</label>
             </div>
             {dietView==='today' ? (
-              <MealsForToday supabase={supabase} todayMeals={todayMeals} openIngredients={openIngredients} ingredientsFor={ingredientsFor} ingredients={ingredients} recipeHelp={recipeHelp} addIngredient={addIngredient} loadReplacements={loadReplacements} replacingId={replacingId} options={options} replaceMeal={replaceMeal} />
+              <MealsForToday
+                todayMeals={todayMeals}
+                openIngredients={openIngredients}
+                ingredientsFor={ingredientsFor}
+                ingredients={ingredients}
+                recipeHelp={recipeHelp}
+                addIngredient={addIngredient}
+                loadReplacements={loadReplacements}
+                replacingId={replacingId}
+                options={options}
+                replaceMeal={replaceMeal}
+              />
             ) : (
-              <WeekMeals weekMeals={weekMeals} {...{ openIngredients, ingredientsFor, ingredients, recipeHelp, addIngredient, loadReplacements, replacingId, options, replaceMeal }} />
+              <WeekMeals
+                weekMeals={weekMeals}
+                openIngredients={openIngredients}
+                ingredientsFor={ingredientsFor}
+                ingredients={ingredients}
+                recipeHelp={recipeHelp}
+                addIngredient={addIngredient}
+                loadReplacements={loadReplacements}
+                replacingId={replacingId}
+                options={options}
+                replaceMeal={replaceMeal}
+              />
             )}
           </div>
 
@@ -245,10 +292,21 @@ export default function Plans(){
   )
 }
 
-function MealsForToday({ supabase, todayMeals, openIngredients, ingredientsFor, ingredients, recipeHelp, addIngredient, loadReplacements, replacingId, options }:{
-  supabase:any, todayMeals: Meal[], openIngredients:(m:Meal)=>Promise<void>, ingredientsFor:string|null, ingredients:string[], recipeHelp:string, addIngredient:(n:string)=>Promise<void>, loadReplacements:(m:Meal)=>Promise<void>, replacingId:string|null, options:any[]
+function MealsForToday({
+  todayMeals, openIngredients, ingredientsFor, ingredients, recipeHelp, addIngredient, loadReplacements, replacingId, options, replaceMeal
+} : {
+  todayMeals: Meal[]
+  openIngredients: (m:Meal)=>Promise<void>
+  ingredientsFor: string|null
+  ingredients: string[]
+  recipeHelp: string
+  addIngredient: (n:string)=>Promise<void>
+  loadReplacements: (m:Meal)=>Promise<void>
+  replacingId: string|null
+  options: any[]
+  replaceMeal: (m:Meal, name:string)=>Promise<void>
 }){
-  if (todayMeals.length===0) return <p className="muted">No meals saved for today.</p>
+  if (todayMeals.length===0) return <p className="muted">No meals saved for this day.</p>
   return (<div className="grid">{todayMeals.map(m=>(
     <div key={m.id} className="card">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -274,7 +332,6 @@ function MealsForToday({ supabase, todayMeals, openIngredients, ingredientsFor, 
     </div>
   ))}</div>)
 }
-
 function WeekMeals({ weekMeals, ...rest }:{ weekMeals: DayMeals[] } & any){
   return (<div className="grid">{weekMeals.map(d=>(
     <div key={d.date} className="card">
@@ -283,12 +340,10 @@ function WeekMeals({ weekMeals, ...rest }:{ weekMeals: DayMeals[] } & any){
     </div>
   ))}</div>)
 }
-
 function BlocksList({ blocks }:{ blocks: WorkoutBlock[] }){
   if(blocks.length===0) return <p className="muted">No workout saved for this day.</p>
   return (<div className="grid">{blocks.map(b=>(<div key={b.id} className="card"><b>{b.type}</b><div style={{marginTop:6}}>{Array.isArray(b.movements)?b.movements.map((mv:any,idx:number)=>(<Movement key={idx} name={mv.name}/>)):null}</div></div>))}</div>)
 }
-
 function WeekBlocks({ weekBlocks }:{ weekBlocks: DayBlocks[] }){
   return (<div className="grid">{weekBlocks.map(d=>(
     <div key={d.date} className="card">
@@ -297,7 +352,6 @@ function WeekBlocks({ weekBlocks }:{ weekBlocks: DayBlocks[] }){
     </div>
   ))}</div>)
 }
-
 function Movement({ name }: { name: string }){
   const supabase = createClient()
   const [info, setInfo] = useState<any>(null)
