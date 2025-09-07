@@ -21,4 +21,4 @@ Visit http://localhost:3000 → sign up/in → Onboarding → Family → Today �
 - Vercel → import project → add the two env vars → Deploy.
 - Update Supabase Auth redirect URLs if confirmations are ON.
 
-Commit
+
