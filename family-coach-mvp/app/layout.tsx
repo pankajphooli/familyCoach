@@ -1,6 +1,7 @@
 import '../styles/globals.css'
 import Link from 'next/link'
 import ThemeToggle from './components/ThemeToggle'
+import HamburgerMenu from './components/HamburgerMenu'
 
 export const metadata = { title: 'HouseholdHQ', description: 'Family calendar, meals & workouts, and grocery — all in one.' }
 
@@ -21,9 +22,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }){
               <Link href="/grocery">Grocery</Link>
               <Link href="/today">Today</Link>
               <Link href="/progress">Progress</Link>
-              <Link href="/profile">Profile</Link>
+              
             </nav>
             <ThemeToggle />
+            <HamburgerMenu />
           </header>
           {children}
           <footer className="site-footer">
