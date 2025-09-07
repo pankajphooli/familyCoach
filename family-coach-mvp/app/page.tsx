@@ -36,9 +36,7 @@ export default function Home(){
         if (!mounted) return
         setProfile(prof || null)
         // if missing core onboarding info, redirect
-        if (!prof || !prof.sex || !prof.height_cm || !prof.weight_kg) {
-          router.push('/onboarding'); return
-        }
+        if (!prof) { router.push('/onboarding'); return }
         // load dashboard data
         await Promise.all([
           loadEvents(prof),
