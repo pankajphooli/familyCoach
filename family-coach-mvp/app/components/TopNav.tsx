@@ -17,7 +17,7 @@ export default function TopNav(){
     return () => { sub.subscription.unsubscribe() }
   }, [])
 
-  async function onSignOut(e: React.MouseEvent){
+  async function onSignOut(e: React.MouseEvent<HTMLButtonElement>){
     e.preventDefault()
     try{
       const { error } = await supabase.auth.signOut()
@@ -30,7 +30,7 @@ export default function TopNav(){
     }
   }
 
-  const linkCls = (href:string) => \`px-3 py-2 rounded-md text-sm font-medium \${pathname===href?'underline':''}\`
+  const linkCls = (href:string) => `px-3 py-2 rounded-md text-sm font-medium ${pathname===href?'underline':''}`
 
   return (
     <nav className="flex items-center justify-between py-3" style={{gap: 12}}>
