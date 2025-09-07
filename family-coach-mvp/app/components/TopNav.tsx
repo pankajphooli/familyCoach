@@ -1,19 +1,53 @@
 'use client'
-import { useEffect, useState } from 'react'
+
+import Link from 'next/link'
+import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '../lib/supabaseClient'
+import { useEffect, useState } from 'react'
+
 export default function TopNav(){
   const supabase = createClient()
-  const [userEmail, setUserEmail] = useState<string|undefined>()
-  useEffect(()=>{ supabase.auth.getUser().then(({data})=> setUserEmail(data.user?.email)) },[])
-  const signOut = async()=>{ await supabase.auth.signOut(); window.location.href='/' }
-  return (<header style={{display:'flex',alignItems:'center',gap:16, padding:'10px 14px', borderBottom:'1px solid rgba(0,0,0,.08)'}}>
-    <a href="/" style={{fontWeight:700}}>HouseholdHQ</a>
-    <nav style={{display:'flex',gap:14,flexWrap:'wrap'}}>
-      <a href="/plans">Plans</a><a href="/family">Family</a><a href="/calendar">Calendar</a><a href="/grocery">Grocery</a><a href="/profile">Profile</a><a href="/admin/errors" style={{opacity:.7}}>Errors</a>
+  const router = useRouter()
+  const pathname = usePathname()
+  const [uid, setUid] = useState<string | null>(null)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setUid(data.session?.user?.id ?? null))
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setUid(s?.user?.id ?? null))
+    return () => { sub.subscription.unsubscribe() }
+  }, [])
+
+  async function onSignOut(e: React.MouseEvent){
+    e.preventDefault()
+    try{
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+      router.replace('/')
+      router.refresh()
+    }catch(err:any){
+      console.error('signOut error', err)
+      alert('Sign-out failed: ' + (err?.message || String(err)))
+    }
+  }
+
+  const linkCls = (href:string) => \`px-3 py-2 rounded-md text-sm font-medium \${pathname===href?'underline':''}\`
+
+  return (
+    <nav className="flex items-center justify-between py-3" style={{gap: 12}}>
+      <div className="flex items-center" style={{gap: 8}}>
+        <Link href="/" className="text-xl font-semibold">HouseholdHQ</Link>
+        <Link href="/plans" className={linkCls('/plans')}>Plans</Link>
+        <Link href="/calendar" className={linkCls('/calendar')}>Calendar</Link>
+        <Link href="/grocery" className={linkCls('/grocery')}>Grocery</Link>
+        <Link href="/family" className={linkCls('/family')}>Family</Link>
+      </div>
+      <div className="flex items-center" style={{gap: 8}}>
+        {uid ? (
+          <button type="button" onClick={onSignOut} className="button">Sign out</button>
+        ) : (
+          <Link href="/auth" className="button">Sign in</Link>
+        )}
+      </div>
     </nav>
-    <div style={{marginLeft:'auto',display:'flex',gap:10,alignItems:'center'}}>
-      {userEmail && <small className="muted">{userEmail}</small>}
-      <button className="button" onClick={signOut}>Sign out</button>
-    </div>
-  </header>)
+  )
 }
