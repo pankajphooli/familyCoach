@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createAdmin } from '../../../lib/supabaseAdmin'
+import { createAdmin } from '../../lib/supabaseAdmin'
 
 // Generates the upcoming week (Mon..Sun) for all profiles:
 // - Diet: plan_days + plan_meals
