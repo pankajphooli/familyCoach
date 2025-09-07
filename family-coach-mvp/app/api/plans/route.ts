@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createAdmin } from '@/app/lib/supabaseAdmin'
+import { createAdmin } from '../../lib/supabaseAdmin'
 
 function ymdLocal(d: Date){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}` }
 function mondayOfWeekContaining(d: Date){ const dow=d.getDay()||7; const mon=new Date(d); mon.setDate(d.getDate()-(dow-1)); mon.setHours(0,0,0,0); return mon }
@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     const scope = body?.scope as string | undefined
     if (!scope) return NextResponse.json({ error: 'Missing scope' }, { status: 400 })
 
-    // Get access token from Authorization header
+    // Bearer token from client (via supabase.auth.getSession())
     const auth = req.headers.get('authorization') || ''
     const token = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7) : null
     if (!token) return NextResponse.json({ error: 'No auth token' }, { status: 401 })
@@ -48,10 +48,10 @@ export async function POST(req: Request) {
       const pattern=String((prof.data as any)?.dietary_pattern||'non-veg').toLowerCase()
       const isVeg=pattern.includes('veg') && !pattern.includes('non-veg')
       const meals=[
-        {meal_type:'breakfast',recipe_name=isVeg?'Veg Oats Bowl':'Scrambled Eggs'},
-        {meal_type:'lunch',    recipe_name=isVeg?'Paneer Bowl':'Grilled Chicken Bowl'},
-        {meal_type:'snack',    recipe_name:'Greek Yogurt & Fruit'},
-        {meal_type:'dinner',   recipe_name=isVeg?'Tofu Stir-fry':'Salmon & Veg'}
+        {meal_type:'breakfast',recipe_name: isVeg ? 'Veg Oats Bowl' : 'Scrambled Eggs'},
+        {meal_type:'lunch',    recipe_name: isVeg ? 'Paneer Bowl'   : 'Grilled Chicken Bowl'},
+        {meal_type:'snack',    recipe_name: 'Greek Yogurt & Fruit'},
+        {meal_type:'dinner',   recipe_name: isVeg ? 'Tofu Stir-fry' : 'Salmon & Veg'}
       ].map(m=>({ ...m, plan_day_id: ins.data.id }))
       const pm=await admin.from('plan_meals').insert(meals)
       if (pm.error) throw pm.error

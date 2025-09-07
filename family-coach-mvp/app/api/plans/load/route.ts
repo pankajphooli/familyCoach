@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createAdmin } from '@/app/lib/supabaseAdmin'
+import { createAdmin } from '../../../lib/supabaseAdmin'
 
 function ymdLocal(d: Date){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}` }
 function mondayOfWeekContaining(d: Date){ const dow=d.getDay()||7; const mon=new Date(d); mon.setDate(d.getDate()-(dow-1)); mon.setHours(0,0,0,0); return mon }
@@ -7,7 +7,7 @@ function datesMonToSun(mon: Date){ return Array.from({length:7},(_,i)=>{ const x
 
 export async function GET(req: Request) {
   try {
-    const auth = (req.headers as any).get('authorization') || ''
+    const auth = req.headers.get('authorization') || ''
     const token = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7) : null
     if (!token) return NextResponse.json({ error: 'No auth token' }, { status: 401 })
 
@@ -19,6 +19,7 @@ export async function GET(req: Request) {
     const mon = mondayOfWeekContaining(new Date())
     const weekDates = datesMonToSun(mon).map(ymdLocal)
 
+    // Today diet
     const dayQ = await admin.from('plan_days').select('id').eq('user_id', user.id).eq('date', today).maybeSingle()
     let todayMeals:any[] = []
     if (dayQ.data) {
@@ -26,6 +27,7 @@ export async function GET(req: Request) {
       todayMeals = (msQ.data as any[]) || []
     }
 
+    // Week diet
     const daysQ = await admin.from('plan_days').select('id,date').eq('user_id', user.id).in('date', weekDates)
     const mapDayId:Record<string,string> = {}; for (const d of (daysQ.data||[])) mapDayId[(d as any).date]=(d as any).id
     const ids = Object.values(mapDayId)
@@ -40,6 +42,7 @@ export async function GET(req: Request) {
       weekMeals = weekDates.map(dt => ({ date: dt, meals: grouped[dt] || [] }))
     }
 
+    // Today workout
     const wdayQ = await admin.from('workout_days').select('id').eq('user_id', user.id).eq('date', today).maybeSingle()
     let todayBlocks:any[] = []
     if (wdayQ.data){
@@ -47,6 +50,7 @@ export async function GET(req: Request) {
       todayBlocks = (blocksQ.data as any[]) || []
     }
 
+    // Week workout
     const wdaysQ = await admin.from('workout_days').select('id,date').eq('user_id', user.id).in('date', weekDates)
     const wMap:Record<string,string> = {}; for (const d of (wdaysQ.data||[])) wMap[(d as any).date]=(d as any).id
     const wIds = Object.values(wMap)
