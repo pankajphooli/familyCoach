@@ -7,6 +7,7 @@ type Meal = { id: string; plan_day_id: string; meal_type: string; recipe_name: s
 type WorkoutBlock = { id: string; workout_day_id: string; kind?: string | null; title?: string | null; details?: string | null }
 type PlanDay = { id: string; date: string }
 type WorkoutDay = { id: string; date: string }
+
 type Profile = {
   dietary_pattern?: string|null
   meat_policy?: string|null
@@ -16,6 +17,23 @@ type Profile = {
   injuries?: string[]|null
   health_conditions?: string[]|null
   equipment?: string[]|null
+}
+
+type Recipe = {
+  name: string
+  dietary_pattern?: string|null
+  allergens?: string[]|null
+  tags?: string[]|null
+  ingredients?: string[]|null
+  cuisine?: string|null
+}
+
+type Exercise = {
+  name: string
+  tags?: string[]|null
+  equipment?: string[]|null
+  contraindications?: string[]|null
+  description?: string|null
 }
 
 const MEAL_TIME: Record<string,string> = {
@@ -103,7 +121,7 @@ export default function PlansPage(){
   })() }, [])
 
   // === Constraint helpers ===
-  function isRecipeAllowed(rec:any, prof: Profile){
+  function isRecipeAllowed(rec: Recipe, prof: Profile){
     const patt = (prof.dietary_pattern || '').toLowerCase()
     if(patt){
       const rp = (rec.dietary_pattern || '').toLowerCase()
@@ -145,7 +163,7 @@ export default function PlansPage(){
     return arr[index % arr.length] || arr[0]
   }
 
-  async function candidatesFor(tag:string, prof:Profile, limit=50){
+  async function candidatesFor(tag:string, prof:Profile, limit=50): Promise<Recipe[]>{
     // pull a handful from DB then filter client-side by allergies/dislikes/policy
     let q:any = supabase.from('recipes').select('name, dietary_pattern, allergens, tags, ingredients, cuisine').limit(limit)
     q = q.ilike('tags', `%${tag}%`)
@@ -153,7 +171,8 @@ export default function PlansPage(){
       q = q.eq('dietary_pattern', prof.dietary_pattern)
     }
     const { data } = await q
-    const filtered = (data||[]).filter(rec => isRecipeAllowed(rec, prof))
+    const list = (data as Recipe[]) || []
+    const filtered = list.filter((rec: Recipe) => isRecipeAllowed(rec, prof))
     return filtered
   }
 
@@ -164,9 +183,9 @@ export default function PlansPage(){
         candidatesFor('Lunch', prof),
         candidatesFor('Dinner', prof)
       ])
-      const bName = pickFrom(b, dayIndex, {name:'Oat Bowl'} as any).name
-      const lName = pickFrom(l, dayIndex, {name:'Chicken Wrap'} as any).name
-      const dName = pickFrom(d, dayIndex, {name:'Veg Stir Fry'} as any).name
+      const bName = pickFrom<Recipe>(b, dayIndex, {name:'Oat Bowl'} as Recipe).name
+      const lName = pickFrom<Recipe>(l, dayIndex, {name:'Chicken Wrap'} as Recipe).name
+      const dName = pickFrom<Recipe>(d, dayIndex, {name:'Veg Stir Fry'} as Recipe).name
       return [
         { meal_type: 'breakfast', recipe_name: bName },
         { meal_type: 'lunch',     recipe_name: lName },
@@ -202,7 +221,7 @@ export default function PlansPage(){
     }
   }
 
-  function isExerciseAllowed(ex:any, prof:Profile){
+  function isExerciseAllowed(ex: Exercise, prof:Profile){
     const eqp = (prof.equipment||[]).map(normalizeName)
     const need: string[] = (ex.equipment||[]).map((x:any)=>normalizeName(String(x)))
     const contra: string[] = (ex.contraindications||[]).map((x:any)=>normalizeName(String(x)))
@@ -216,12 +235,13 @@ export default function PlansPage(){
 
   async function pickWorkoutFor(dayIndex:number, prof:Profile){
     // build a routine from allowed exercises
-    const { data: exs } = await supabase.from('exercises').select('name,tags,equipment,contraindications,description').limit(100)
-    const allowed = (exs||[]).filter(ex => isExerciseAllowed(ex, prof))
+    const { data } = await supabase.from('exercises').select('name,tags,equipment,contraindications,description').limit(100)
+    const exs = (data as Exercise[]) || []
+    const allowed = exs.filter((ex:Exercise) => isExerciseAllowed(ex, prof))
     // pick 3 different-ish
-    const a = pickFrom(allowed, dayIndex, {name:'Glute bridge', description:'Squeeze at top. 3×12'} as any)
-    const b = pickFrom(allowed, dayIndex+3, {name:'Row (band)', description:'3×12'} as any)
-    const c = pickFrom(allowed, dayIndex+5, {name:'Plank', description:'3×30s'} as any)
+    const a = pickFrom<Exercise>(allowed, dayIndex, {name:'Glute bridge', description:'Squeeze at top. 3×12'} as Exercise)
+    const b = pickFrom<Exercise>(allowed, dayIndex+3, {name:'Row (band)', description:'3×12'} as Exercise)
+    const c = pickFrom<Exercise>(allowed, dayIndex+5, {name:'Plank', description:'3×30s'} as Exercise)
     return [
       { kind:'warmup',  title:'Warm-up',    details:'5–8 min easy walk + mobility' },
       { kind:'circuit', title: a.name,      details: a.description || '3×12' },
@@ -244,8 +264,8 @@ export default function PlansPage(){
         supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', weekDates),
         supabase.from('workout_days').select('id,date').eq('user_id', userId).in('date', weekDates),
       ])
-      const havePd = new Set((pds.data||[]).map((r:any)=>r.date))
-      const haveWd = new Set((wds.data||[]).map((r:any)=>r.date))
+      const havePd = new Set(((pds.data||[]) as PlanDay[]).map((r)=>r.date))
+      const haveWd = new Set(((wds.data||[]) as WorkoutDay[]).map((r)=>r.date))
 
       // Insert missing days
       const missingPd = weekDates.filter(d=>!havePd.has(d)).map(date=>({ user_id: userId, date }))
@@ -260,16 +280,16 @@ export default function PlansPage(){
         supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', weekDates),
         supabase.from('workout_days').select('id,date').eq('user_id', userId).in('date', weekDates),
       ])
-      const pdByDate: Record<string, string> = {}; (pds2.data||[]).forEach((r:any)=> pdByDate[r.date]=r.id)
-      const wdByDate: Record<string, string> = {}; (wds2.data||[]).forEach((r:any)=> wdByDate[r.date]=r.id)
+      const pdByDate: Record<string, string> = {}; ((pds2.data||[]) as PlanDay[]).forEach((r)=> pdByDate[r.date]=r.id)
+      const wdByDate: Record<string, string> = {}; ((wds2.data||[]) as WorkoutDay[]).forEach((r)=> wdByDate[r.date]=r.id)
 
       // Fetch all meals/blocks once
       const [mealsAll, blocksAll] = await Promise.all([
         supabase.from('meals').select('id,plan_day_id').in('plan_day_id', Object.values(pdByDate)),
         supabase.from('workout_blocks').select('id,workout_day_id').in('workout_day_id', Object.values(wdByDate)),
       ])
-      const pdWithMeals = new Set((mealsAll.data||[]).map((m:any)=>m.plan_day_id))
-      const wdWithBlocks = new Set((blocksAll.data||[]).map((b:any)=>b.workout_day_id))
+      const pdWithMeals = new Set(((mealsAll.data||[]) as {id:string;plan_day_id:string}[]).map((m)=>m.plan_day_id))
+      const wdWithBlocks = new Set(((blocksAll.data||[]) as {id:string;workout_day_id:string}[]).map((b)=>b.workout_day_id))
 
       // Insert missing meals/blocks with constraints
       const mealsToInsert:any[] = []
@@ -347,7 +367,7 @@ export default function PlansPage(){
     setIngredientsFor(recipe)
     setIngredients([])
     const { data: rec } = await supabase.from('recipes').select('*').ilike('name', recipe).maybeSingle()
-    const list: string[] = (rec?.ingredients as any) || []
+    const list: string[] = (rec as Recipe | null)?.ingredients || []
     setIngredients(list || [])
   }
   async function addIngredientsToGrocery(items: string[]){
@@ -387,12 +407,13 @@ export default function PlansPage(){
   async function loadReplacements(meal: Meal){
     setReplacingId(meal.id)
     setAltOptions([])
-    const p = profile || {}
+    const p = (profile || {}) as Profile
     let q: any = supabase.from('recipes').select('name, dietary_pattern, allergens, cuisine, tags').limit(50)
-    if((p as any).dietary_pattern){ q = q.eq('dietary_pattern', (p as any).dietary_pattern) }
+    if(p.dietary_pattern){ q = q.eq('dietary_pattern', p.dietary_pattern) }
     const { data } = await q
-    const filtered = (data||[]).filter((rec:any)=>isRecipeAllowed(rec, (p as Profile)))
-    setAltOptions(filtered.map((r:any)=>r.name))
+    const list = (data as Recipe[]) || []
+    const filtered = list.filter((rec: Recipe)=>isRecipeAllowed(rec, p))
+    setAltOptions(filtered.map((r:Recipe)=>r.name))
   }
   async function replaceMeal(mealId: string, name: string){
     await supabase.from('meals').update({ recipe_name: name }).eq('id', mealId)
