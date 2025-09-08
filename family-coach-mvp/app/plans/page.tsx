@@ -2,12 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '../../lib/supabaseClient'
-import dynamic from 'next/dynamic'
-const ChatCoach = dynamic(() => import('../components/ChatCoach'), { ssr: false })
-
 
 type Meal = { id: string; plan_day_id: string; meal_type: string; recipe_name: string | null }
 type WorkoutBlock = { id: string; workout_day_id: string; kind?: string | null; title?: string | null; details?: string | null }
+type PlanDay = { id: string; date: string }
+type WorkoutDay = { id: string; date: string }
 
 const MEAL_TIME: Record<string,string> = {
   breakfast: '08:00–09:00',
@@ -39,52 +38,47 @@ export default function PlansPage(){
   const [weekMeals, setWeekMeals] = useState<Record<string, Meal[]>>({})
   const [todayBlocks, setTodayBlocks] = useState<WorkoutBlock[]>([])
   const [weekBlocks, setWeekBlocks] = useState<Record<string, WorkoutBlock[]>>({})
-  const [replacingId, setReplacingId] = useState<string|null>(null)
-  const [altOptions, setAltOptions] = useState<string[]>([])
-  const [ingredientsFor, setIngredientsFor] = useState<string>('')
-  const [ingredients, setIngredients] = useState<string[]>([])
-  const [detailFor, setDetailFor] = useState<string>('')
-  const [exerciseDetail, setExerciseDetail] = useState<{description?: string|null, image_url?: string|null, sets?: any, reps?: any} | null>(null)
-
-  function notify(kind:'error'|'success', msg:string){
-    if(typeof window !== 'undefined' && (window as any).toast){
-      (window as any).toast(kind, msg)
-    } else {
-      if(kind==='error') console.warn(msg); else console.log(msg)
-    }
-  }
 
   const todayStr = useMemo(()=> ymdLocal(new Date()), [])
+  const monday = useMemo(()=> mondayOfWeek(new Date()), [])
+  const weekDates = useMemo(()=> rangeMonToSun(monday).map(ymdLocal), [monday])
+
+  // === FAST START: boot from cache, then refresh in background
+  useEffect(()=>{
+    try{
+      const key = `plans_cache_${ymdLocal(monday)}`
+      const raw = localStorage.getItem(key)
+      if(raw){
+        const parsed = JSON.parse(raw)
+        if(parsed?.weekMeals) setWeekMeals(parsed.weekMeals)
+        if(parsed?.weekBlocks) setWeekBlocks(parsed.weekBlocks)
+        if(parsed?.todayMeals) setTodayMeals(parsed.todayMeals)
+        if(parsed?.todayBlocks) setTodayBlocks(parsed.todayBlocks)
+      }
+    }catch{}
+  }, [monday])
 
   useEffect(()=>{ (async()=>{
     setBusy(true)
     try{
       const { data: { user } } = await supabase.auth.getUser()
       if(!user){ return }
-      const mon = mondayOfWeek(new Date())
-      await ensureWeekGenerated(user.id, mon)
+
+      await ensureWeekIfNeeded(user.id)
+
+      // Load all data with minimal round-trips
       await loadAll(user.id)
+
+      // Save cache
+      try{
+        const key = `plans_cache_${ymdLocal(monday)}`
+        localStorage.setItem(key, JSON.stringify({ weekMeals, weekBlocks, todayMeals, todayBlocks }))
+      }catch{}
     } finally { setBusy(false) }
   })() }, [])
 
-  async function pickMealsFor(dayIndex:number, pattern:string|null){
-    try{
-      let names:string[] = []
-      const tags = ['Breakfast','Lunch','Dinner']
-      for(const tag of tags){
-        let q:any = supabase.from('recipes').select('name').ilike('tags', `%${tag}%`).limit(1).range(dayIndex, dayIndex)
-        if(pattern) q = q.eq('dietary_pattern', pattern)
-        const { data } = await q
-        if(data && data.length){ names.push(data[0].name); continue }
-        names.push('')
-      }
-      if(names.some(n=>n)) return [
-        { meal_type: 'breakfast', recipe_name: names[0] || 'Oat Bowl' },
-        { meal_type: 'lunch',     recipe_name: names[1] || 'Grilled Chicken Salad' },
-        { meal_type: 'dinner',    recipe_name: names[2] || 'Veg Stir Fry' },
-      ]
-    }catch(e){/* ignore */}
-
+  // === GENERATION (BULK + GUARDED) ============================
+  function defaultsForMeals(dayIndex:number, pattern:string|null){
     const omni = [
       ['Oat Bowl','Chicken Wrap','Salmon & Greens'],
       ['Greek Yogurt Parfait','Turkey Salad','Pasta Primavera'],
@@ -112,185 +106,151 @@ export default function PlansPage(){
     ]
   }
 
-  // NEW: varied workouts for each weekday
   function pickWorkoutFor(dayIndex:number){
     const plans = [
       [
         { kind:'warmup',  title:'Light cardio',              details:'5–8 min brisk walk or cycle' },
-        { kind:'circuit', title:'Full body circuit',         details:'3 rounds: 12 squats • 10 push-ups (knees ok) • 12 lunges/leg • 30s plank' },
-        { kind:'cooldown',title:'Stretch',                   details:'5 min full-body stretch' },
+        { kind:'circuit', title:'Full body circuit',         details:'3 rounds: 12 squats • 10 push-ups • 12 lunges/leg • 30s plank' },
+        { kind:'cooldown',title:'Stretch',                   details:'5 min full-body stretch' }
       ],
       [
         { kind:'warmup',  title:'Band/arm warm-up',          details:'2×15 band pull-aparts + arm circles' },
-        { kind:'circuit', title:'Upper + core',              details:'3 rounds: 12 rows (dumbbell/band) • 10 incline push-ups • 12 shoulder taps/side' },
-        { kind:'cooldown',title:'Stretch',                   details:'Chest + shoulders + thoracic 5 min' },
+        { kind:'circuit', title:'Upper + core',              details:'3 rounds: 12 rows • 10 incline push-ups • 12 shoulder taps/side' },
+        { kind:'cooldown',title:'Stretch',                   details:'Chest/shoulders/upper-back 5 min' }
       ],
       [
         { kind:'warmup',  title:'Easy cardio',               details:'5 min easy walk' },
         { kind:'circuit', title:'Steady cardio',             details:'25–30 min at RPE 6/10 (jog, cycle, brisk walk)' },
-        { kind:'cooldown',title:'Core finisher',             details:'3×30s side planks + 3×10 bird-dogs/side' },
+        { kind:'cooldown',title:'Core finisher',             details:'3×30s side planks + 3×10 bird-dogs/side' }
       ],
       [
         { kind:'warmup',  title:'Hips/ankles warm-up',       details:'Leg swings, ankle circles 2 min' },
         { kind:'circuit', title:'Lower body',                details:'3 rounds: 12 goblet squats • 12 RDLs • 12 step-ups/leg' },
-        { kind:'cooldown',title:'Stretch',                   details:'Quads/hamstrings/hips 5 min' },
+        { kind:'cooldown',title:'Stretch',                   details:'Quads/hamstrings/hips 5 min' }
       ],
       [
         { kind:'warmup',  title:'Dynamic mobility',          details:'Cat-cow, world’s greatest stretch 3 min' },
         { kind:'circuit', title:'Mobility + core flow',      details:'3 rounds: 8 inchworms • 12 dead-bugs/side • 10 glute bridges' },
-        { kind:'cooldown',title:'Breathing + stretch',       details:'Box breathing 2 min + stretch 3 min' },
+        { kind:'cooldown',title:'Breathing + stretch',       details:'Box breathing 2 min + stretch 3 min' }
       ],
       [
         { kind:'warmup',  title:'Jog/walk warm-up',          details:'5–8 min easy' },
         { kind:'circuit', title:'Intervals',                 details:'10×(1 min harder / 1 min easy) at RPE 7–8/10' },
-        { kind:'cooldown',title:'Walk + stretch',            details:'5 min walk + calves/hips stretch' },
+        { kind:'cooldown',title:'Walk + stretch',            details:'5 min walk + calves/hips stretch' }
       ],
       [
         { kind:'warmup',  title:'Gentle limbering',          details:'Neck/shoulders/hips 2–3 min' },
         { kind:'circuit', title:'Active recovery',           details:'30–45 min easy walk or light bike' },
-        { kind:'cooldown',title:'Relax + stretch',           details:'Light full-body stretch 5 min' },
-      ],
+        { kind:'cooldown',title:'Relax + stretch',           details:'Light full-body stretch 5 min' }
+      ]
     ]
     return plans[dayIndex % plans.length]
   }
 
-  async function ensureMealsForDay(userId: string, pdId: string, dayIndex:number, pattern:string|null){
-    const { data: existing } = await supabase.from('meals').select('id').eq('plan_day_id', pdId)
-    if(existing && existing.length>0) return
-    const defaults = await pickMealsFor(dayIndex, pattern)
-    const insM = await supabase.from('meals').insert(defaults.map(m=>({ ...m, plan_day_id: pdId })))
-    if(insM.error){ console.warn('meals insert error', insM.error); notify('error','Could not create meals (RLS).') }
-  }
-
-  async function ensureWorkoutForDay(userId: string, wdId: string, dayIndex:number){
-    const { data: existing } = await supabase.from('workout_blocks').select('id').eq('workout_day_id', wdId)
-    if(existing && existing.length>0) return
-    const blocks = pickWorkoutFor(dayIndex)
-    const insB = await supabase.from('workout_blocks').insert(blocks.map(b=>({ ...b, workout_day_id: wdId })))
-    if(insB.error){ console.warn('workout_blocks insert error', insB.error); notify('error','Could not create workout blocks (RLS).') }
-  }
-
-  async function ensureWeekGenerated(userId: string, monday: Date){
-    const prof = await supabase.from('profiles').select('dietary_pattern').eq('id', userId).maybeSingle(); const pattern = (prof.data as any)?.dietary_pattern || null;
-    const days = rangeMonToSun(monday); for(let i=0;i<days.length;i++){ const d = days[i];
-      const dateStr = ymdLocal(d)
-      // Diet
-      let { data: pd } = await supabase.from('plan_days').select('id').eq('user_id', userId).eq('date', dateStr).maybeSingle()
-      if(!pd){
-        const ins = await supabase.from('plan_days').insert({ user_id: userId, date: dateStr }).select('id').maybeSingle()
-        if(ins.error){ console.warn('plan_days insert error', ins.error); notify('error','Diet auto-create blocked by permissions.'); continue }
-        pd = { id: (ins.data as any).id }
+  async function ensureWeekIfNeeded(userId: string){
+    try{
+      const flagKey = `plans_ensured_monday`
+      const mondayStr = ymdLocal(monday)
+      const flag = typeof window !== 'undefined' ? localStorage.getItem(flagKey) : null
+      if(flag === mondayStr){
+        return
       }
-      await ensureMealsForDay(userId, (pd as any).id, i, pattern)
+      // Fetch existing plan_days & workout_days in one go
+      const [pds, wds] = await Promise.all([
+        supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', weekDates),
+        supabase.from('workout_days').select('id,date').eq('user_id', userId).in('date', weekDates),
+      ])
+      const havePd = new Set((pds.data||[]).map((r:any)=>r.date))
+      const haveWd = new Set((wds.data||[]).map((r:any)=>r.date))
 
-      // Workout
-      let { data: wd } = await supabase.from('workout_days').select('id').eq('user_id', userId).eq('date', dateStr).maybeSingle()
-      if(!wd){
-        const insW = await supabase.from('workout_days').insert({ user_id: userId, date: dateStr }).select('id').maybeSingle()
-        if(insW.error){ console.warn('workout_days insert error', insW.error); notify('error','Workout auto-create blocked by permissions.'); continue }
-        wd = { id: (insW.data as any).id }
-      }
-      await ensureWorkoutForDay(userId, (wd as any).id, i)
+      // Insert missing days in bulk
+      const missingPd = weekDates.filter(d=>!havePd.has(d)).map(date=>({ user_id: userId, date }))
+      const missingWd = weekDates.filter(d=>!haveWd.has(d)).map(date=>({ user_id: userId, date }))
+      await Promise.all([
+        missingPd.length ? supabase.from('plan_days').insert(missingPd) : Promise.resolve(),
+        missingWd.length ? supabase.from('workout_days').insert(missingWd) : Promise.resolve(),
+      ])
+
+      // Refresh ids
+      const [pds2, wds2] = await Promise.all([
+        supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', weekDates),
+        supabase.from('workout_days').select('id,date').eq('user_id', userId).in('date', weekDates),
+      ])
+      const pdByDate: Record<string, string> = {}; (pds2.data||[]).forEach((r:any)=> pdByDate[r.date]=r.id)
+      const wdByDate: Record<string, string> = {}; (wds2.data||[]).forEach((r:any)=> wdByDate[r.date]=r.id)
+
+      // Fetch all meals/blocks once
+      const [mealsAll, blocksAll] = await Promise.all([
+        supabase.from('meals').select('id,plan_day_id').in('plan_day_id', Object.values(pdByDate)),
+        supabase.from('workout_blocks').select('id,workout_day_id').in('workout_day_id', Object.values(wdByDate)),
+      ])
+      const pdWithMeals = new Set((mealsAll.data||[]).map((m:any)=>m.plan_day_id))
+      const wdWithBlocks = new Set((blocksAll.data||[]).map((b:any)=>b.workout_day_id))
+
+      // Insert missing meals/blocks in bulk
+      const prof = await supabase.from('profiles').select('dietary_pattern').eq('id', userId).maybeSingle()
+      const pattern = (prof.data as any)?.dietary_pattern || null
+
+      const mealsToInsert:any[] = []
+      const blocksToInsert:any[] = []
+      weekDates.forEach((date, i)=>{
+        const pdId = pdByDate[date]; const wdId = wdByDate[date]
+        if(pdId && !pdWithMeals.has(pdId)){
+          const defs = defaultsForMeals(i, pattern)
+          defs.forEach(m => mealsToInsert.push({ ...m, plan_day_id: pdId }))
+        }
+        if(wdId && !wdWithBlocks.has(wdId)){
+          const defsB = pickWorkoutFor(i)
+          defsB.forEach(b => blocksToInsert.push({ ...b, workout_day_id: wdId }))
+        }
+      })
+      await Promise.all([
+        mealsToInsert.length ? supabase.from('meals').insert(mealsToInsert) : Promise.resolve(),
+        blocksToInsert.length ? supabase.from('workout_blocks').insert(blocksToInsert) : Promise.resolve(),
+      ])
+
+      if (typeof window !== 'undefined') localStorage.setItem(flagKey, mondayStr)
+    }catch(e){
+      console.warn('ensureWeekIfNeeded error', e)
     }
   }
 
+  // === LOAD (3 round-trips total) ============================
   async function loadAll(userId: string){
-    // Today diet
-    const { data: todayPd } = await supabase.from('plan_days').select('id').eq('user_id', userId).eq('date', todayStr).maybeSingle()
-    if(todayPd){
-      const { data: mealsToday } = await supabase.from('meals').select('*').eq('plan_day_id', (todayPd as any).id).order('meal_type', { ascending: true })
-      setTodayMeals(mealsToday || [])
-    } else setTodayMeals([])
+    const [pdRes, wdRes] = await Promise.all([
+      supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', weekDates),
+      supabase.from('workout_days').select('id,date').eq('user_id', userId).in('date', weekDates),
+    ])
+    const pds = (pdRes.data||[]) as PlanDay[]
+    const wds = (wdRes.data||[]) as WorkoutDay[]
+    const pdIds = pds.map(p=>p.id)
+    const wdIds = wds.map(w=>w.id)
 
-    // Week diet
-    const mon = mondayOfWeek(new Date())
-    const ymds = rangeMonToSun(mon).map(ymdLocal)
-    const { data: pds } = await supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', ymds)
-    const grouped: Record<string, Meal[]> = {}
-    if(pds?.length){
-      for(const pd of pds){
-        const { data: ms } = await supabase.from('meals').select('*').eq('plan_day_id', (pd as any).id)
-        grouped[(pd as any).date] = ms || []
-      }
-    }
-    setWeekMeals(grouped)
-    if((todayMeals?.length||0)===0){
-      const t = grouped[todayStr]
-      if(t && t.length) setTodayMeals(t)
-    }
+    const [mealsRes, blocksRes] = await Promise.all([
+      pdIds.length ? supabase.from('meals').select('*').in('plan_day_id', pdIds) : Promise.resolve({ data: [] } as any),
+      wdIds.length ? supabase.from('workout_blocks').select('*').in('workout_day_id', wdIds) : Promise.resolve({ data: [] } as any),
+    ])
 
-    // Today workout
-    const { data: todayWd } = await supabase.from('workout_days').select('id').eq('user_id', userId).eq('date', todayStr).maybeSingle()
-    if(todayWd){
-      const { data: blocks } = await supabase.from('workout_blocks').select('*').eq('workout_day_id', (todayWd as any).id)
-      setTodayBlocks(blocks || [])
-    } else setTodayBlocks([])
+    const meals = (mealsRes as any).data as Meal[] || []
+    const blocks = (blocksRes as any).data as WorkoutBlock[] || []
 
-    // Week workout
-    const { data: wds } = await supabase.from('workout_days').select('id,date').eq('user_id', userId).in('date', ymds)
-    const groupedW: Record<string, WorkoutBlock[]> = {}
-    if(wds?.length){
-      for(const wd of wds){
-        const { data: bs } = await supabase.from('workout_blocks').select('*').eq('workout_day_id', (wd as any).id)
-        groupedW[(wd as any).date] = bs || []
-      }
-    }
-    setWeekBlocks(groupedW)
-    if((todayBlocks?.length||0)===0){
-      const t = groupedW[todayStr]
-      if(t && t.length) setTodayBlocks(t)
-    }
+    const byDateMeals: Record<string, Meal[]> = {}; weekDates.forEach(d=> byDateMeals[d]=[])
+    for(const pd of pds){ byDateMeals[pd.date] = meals.filter(m=>m.plan_day_id===pd.id) }
+    const byDateBlocks: Record<string, WorkoutBlock[]> = {}; weekDates.forEach(d=> byDateBlocks[d]=[])
+    for(const wd of wds){ byDateBlocks[wd.date] = blocks.filter(b=>b.workout_day_id===wd.id) }
+
+    setWeekMeals(byDateMeals)
+    setWeekBlocks(byDateBlocks)
+    setTodayMeals(byDateMeals[todayStr] || [])
+    setTodayBlocks(byDateBlocks[todayStr] || [])
   }
 
   function timeFor(meal_type?: string | null){
     if(!meal_type) return '—'
-    return MEAL_TIME[meal_type] || (meal_type.toLowerCase().includes('break') ? MEAL_TIME.breakfast :
-                                    meal_type.toLowerCase().includes('lunch') ? MEAL_TIME.lunch :
-                                    meal_type.toLowerCase().includes('dinner') ? MEAL_TIME.dinner : '—')
-  }
-
-  async function openIngredients(meal: Meal){
-    const recipe = meal.recipe_name || ''
-    setIngredientsFor(recipe)
-    setIngredients([])
-    const { data: rec } = await supabase.from('recipes').select('*').ilike('name', recipe).maybeSingle()
-    const list: string[] = (rec?.ingredients as any) || []
-    setIngredients(list || [])
-  }
-
-  async function addIngredientsToGrocery(items: string[]){
-    const { data: { user } } = await supabase.auth.getUser()
-    if(!user){ notify('error','Sign in first'); return }
-    if(items.length===0){ notify('error','No structured ingredients found for this recipe'); return }
-    const rows = items.map(name => ({ user_id: user.id, name, done: false }))
-    let ins = await supabase.from('grocery_items').insert(rows)
-    if(ins.error){
-      const ins2 = await supabase.from('shopping_items').insert(rows)
-      if(ins2.error){ notify('error','Could not add items to grocery list.'); return }
-    }
-    notify('success','Added to grocery list.')
-  }
-
-  async function loadReplacements(meal: Meal){
-    setReplacingId(meal.id)
-    setAltOptions([])
-    const { data: { user } } = await supabase.auth.getUser()
-    let pattern: string | null = null
-    if(user){
-      const prof = await supabase.from('profiles').select('dietary_pattern').eq('id', user.id).maybeSingle()
-      pattern = (prof.data as any)?.dietary_pattern || null
-    }
-    let q: any = supabase.from('recipes').select('name')
-    if(pattern){ q = q.eq('dietary_pattern', pattern) }
-    const { data: opts } = await q.limit(15)
-    setAltOptions((opts||[]).map((r:any)=>r.name))
-  }
-
-  async function replaceMeal(meal: Meal, name: string){
-    await supabase.from('meals').update({ recipe_name: name }).eq('id', meal.id)
-    setReplacingId(null)
-    const { data: { user } } = await supabase.auth.getUser()
-    if(user) await loadAll(user.id)
+    const mt = meal_type.toLowerCase()
+    return MEAL_TIME[meal_type] || (mt.includes('break') ? MEAL_TIME.breakfast :
+                                    mt.includes('lunch') ? MEAL_TIME.lunch :
+                                    mt.includes('dinner') ? MEAL_TIME.dinner : '—')
   }
 
   function recipeLink(name?: string | null){
@@ -299,22 +259,10 @@ export default function PlansPage(){
     return `https://www.google.com/search?q=${q}`
   }
 
-  async function openExerciseDetail(title?: string | null){
-    setDetailFor(title || 'Exercise')
-    setExerciseDetail(null)
-    if(!title){ setExerciseDetail({}); return }
-    const { data: ex } = await supabase.from('exercises').select('*').ilike('name', title).maybeSingle()
-    if(ex){
-      setExerciseDetail({ description: (ex as any).description, image_url: (ex as any).image_url, sets: (ex as any).sets, reps: (ex as any).reps })
-      return
-    }
-    setExerciseDetail({})
-  }
-
   return (
     <div className="container" style={{display:'grid', gap:16}}>
       <h1 className="text-2xl font-semibold">Plans</h1>
-      <ChatCoach />
+
       {/* Diet section */}
       <section className="card">
         <div className="flex items-center justify-between">
@@ -335,10 +283,6 @@ export default function PlansPage(){
                   <a className="link" href={recipeLink(m.recipe_name)} target="_blank" rel="noreferrer">Recipe ↗</a>
                 </div>
                 <div>{m.recipe_name || 'TBD'}</div>
-                <div className="flex gap-2">
-                  <button className="button-outline" onClick={()=>openIngredients(m)}>Add to grocery</button>
-                  <button className="button-outline" onClick={()=>loadReplacements(m)}>Replace</button>
-                </div>
               </div>
             ))}
           </div>
@@ -354,8 +298,6 @@ export default function PlansPage(){
                       <div>• {m.meal_type || 'Meal'} — <span className="opacity-70">{timeFor(m.meal_type)}</span> · <span>{m.recipe_name || 'TBD'}</span></div>
                       <div className="flex gap-2">
                         <a className="link" href={recipeLink(m.recipe_name)} target="_blank" rel="noreferrer">Recipe ↗</a>
-                        <button className="button-outline" onClick={()=>openIngredients(m)}>Add to grocery</button>
-                        <button className="button-outline" onClick={()=>loadReplacements(m)}>Replace</button>
                       </div>
                     </li>
                   ))}
@@ -383,7 +325,6 @@ export default function PlansPage(){
               <div key={b.id} className="card row" style={{display:'grid', gap:8}}>
                 <div className="flex items-center justify-between">
                   <div className="font-medium">{b.title || b.kind || 'Block'}</div>
-                  <button className="button-outline" onClick={()=>openExerciseDetail(b.title || b.kind || 'Exercise')}>Details</button>
                 </div>
                 <div className="opacity-80">{b.details || '—'}</div>
               </div>
@@ -399,7 +340,6 @@ export default function PlansPage(){
                   {blocks.map(b => (
                     <div key={b.id} className="flex items-center justify-between">
                       <div>{b.title || b.kind || 'Block'} — <span className="opacity-70">{b.details || ''}</span></div>
-                      <button className="button-outline" onClick={()=>openExerciseDetail(b.title || b.kind || 'Exercise')}>Details</button>
                     </div>
                   ))}
                 </div>
@@ -409,65 +349,7 @@ export default function PlansPage(){
         )}
       </section>
 
-      {/* Ingredients modal */}
-      {ingredientsFor && (
-        <div className="modal">
-          <div className="modal-card">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium">Ingredients — {ingredientsFor}</h3>
-              <button className="icon-button" onClick={()=>{ setIngredientsFor(''); setIngredients([]) }}>✕</button>
-            </div>
-            <div className="grid gap-2 my-3">
-              {ingredients.length ? ingredients.map((it,i)=>(<div key={i}>• {it}</div>)) : <div className="muted">No structured ingredients found.</div>}
-            </div>
-            <div className="flex justify-end gap-2">
-              <button className="button-outline" onClick={()=>{ setIngredientsFor(''); setIngredients([]) }}>Close</button>
-              <button className="button" onClick={()=>addIngredientsToGrocery(ingredients)}>Add to grocery</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Replacement modal */}
-      {replacingId && (
-        <div className="modal">
-          <div className="modal-card">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium">Replace meal</h3>
-              <button className="icon-button" onClick={()=>{ setReplacingId(null); setAltOptions([]) }}>✕</button>
-            </div>
-            <div className="grid gap-2 my-3">
-              {altOptions.length ? altOptions.map(name => (
-                <button key={name} className="button-outline" onClick={()=>{
-                  const mealId = replacingId!; replaceMeal({id:mealId, plan_day_id:'', meal_type:'', recipe_name:''} as Meal, name)
-                }}>{name}</button>
-              )) : <div className="muted">No alternatives found.</div>}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Exercise detail modal */}
-      {detailFor && (
-        <div className="modal">
-          <div className="modal-card">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium">{detailFor}</h3>
-              <button className="icon-button" onClick={()=>{ setDetailFor(''); setExerciseDetail(null) }}>✕</button>
-            </div>
-            <div className="grid gap-2 my-3">
-              {exerciseDetail?.description && <div>{exerciseDetail.description}</div>}
-              {exerciseDetail?.sets && exerciseDetail?.reps && (<div>Sets × Reps: {String(exerciseDetail.sets)} × {String(exerciseDetail.reps)}</div>)}
-              {exerciseDetail?.image_url && (<img src={exerciseDetail.image_url} alt={detailFor} style={{maxWidth:'100%', borderRadius:8}} />)}
-              {!exerciseDetail && <div className="muted">Loading…</div>}
-              {exerciseDetail && !exerciseDetail.description && !exerciseDetail.image_url && <div className="muted">No extra details available.</div>}
-            </div>
-          </div>
-        </div>
-      )}
-
       {busy && <div className="muted">Refreshing…</div>}
-      
     </div>
   )
 }
