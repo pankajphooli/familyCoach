@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '../../lib/supabaseClient'
 
 type Meal = { id: string; plan_day_id: string; meal_type: string; recipe_name: string | null }
@@ -11,6 +11,16 @@ export default function ChatCoach(){
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<{ role: 'user'|'assistant', content: string }[]>([])
   const [busy, setBusy] = useState(false)
+  const [lastError, setLastError] = useState<string>('')
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  // auto-scroll to bottom when messages change
+  useEffect(()=>{
+    const el = boxRef.current
+    if(el){
+      el.scrollTop = el.scrollHeight
+    }
+  }, [messages, busy])
 
   async function snapshot() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -18,6 +28,7 @@ export default function ChatCoach(){
     const profSel = 'dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, health_conditions, injuries, equipment'
     const { data: profile } = await supabase.from('profiles').select(profSel).eq('id', user.id).maybeSingle()
 
+    // current week yyy-mm-dd list
     const today = new Date()
     const mon = new Date(today.getFullYear(), today.getMonth(), today.getDate())
     const dow = mon.getDay() || 7
@@ -43,24 +54,41 @@ export default function ChatCoach(){
   }
 
   async function onSend(){
+    setLastError('')
     if(!input.trim()) return
     const userMsg = input.trim()
     setMessages(m=>[...m, { role: 'user', content: userMsg }])
     setInput('')
     setBusy(true)
     try{
+      // small ping to confirm API configured
+      const ping = await fetch('/api/coach', { method: 'GET' })
+      const pingJson = await ping.json().catch(()=>({}))
+      if(!ping.ok || pingJson?.configured === false){
+        setMessages(m=>[...m, { role:'assistant', content:'AI coach is not configured yet. Ask your admin to set OPENAI_API_KEY in Vercel.' }])
+        return
+      }
+
       const ctx = await snapshot()
       const res = await fetch('/api/coach', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages, profile: ctx.profile, week: ctx.week })
       })
-      const data = await res.json()
+      const data = await res.json().catch(()=>({ reply:'The coach is having trouble responding.', actions:{} }))
       const reply = data?.reply || 'OK.'
       setMessages(m=>[...m, { role: 'assistant', content: reply }])
 
+      if(data?.error){
+        setLastError(typeof data.error === 'string' ? data.error : JSON.stringify(data.error))
+      }
+
+      // Apply returned actions
       const actions = data?.actions || {}
       await apply(actions)
+    }catch(e:any){
+      setMessages(m=>[...m, { role:'assistant', content:'Network error talking to the coach.' }])
+      setLastError(String(e?.message || e))
     }finally{
       setBusy(false)
     }
@@ -69,8 +97,9 @@ export default function ChatCoach(){
   async function apply(actions:any){
     const { data: { user } } = await supabase.auth.getUser()
     if(!user) return
-    const run = async ()=>{
-      if(actions.replaceMeals && Array.isArray(actions.replaceMeals)){
+    try{
+      // replace meals
+      if(Array.isArray(actions?.replaceMeals)){
         for(const r of actions.replaceMeals){
           const { data: pd } = await supabase.from('plan_days').select('id').eq('user_id', user.id).eq('date', r.date).maybeSingle()
           if(pd){
@@ -79,12 +108,14 @@ export default function ChatCoach(){
           }
         }
       }
-      if(actions.addGrocery && Array.isArray(actions.addGrocery) && actions.addGrocery.length){
+      // add grocery
+      if(Array.isArray(actions?.addGrocery) && actions.addGrocery.length){
         const rows = actions.addGrocery.map((name:string)=>({ user_id: user.id, name, done:false }))
         let ins = await supabase.from('grocery_items').insert(rows)
         if(ins.error){ await supabase.from('shopping_items').insert(rows) }
       }
-      if(actions.updateWorkouts && Array.isArray(actions.updateWorkouts)){
+      // update workouts
+      if(Array.isArray(actions?.updateWorkouts)){
         for(const upd of actions.updateWorkouts){
           const { data: wd } = await supabase.from('workout_days').select('id').eq('user_id', user.id).eq('date', upd.date).maybeSingle()
           if(wd){
@@ -94,8 +125,7 @@ export default function ChatCoach(){
           }
         }
       }
-    }
-    await run()
+    }catch(e){ /* swallow errors; UI stays responsive */ }
   }
 
   return (
@@ -106,7 +136,7 @@ export default function ChatCoach(){
             <div className="font-medium">Coach</div>
             <button className="icon-button" onClick={()=>setOpen(false)}>✕</button>
           </div>
-          <div className="grid gap-2 overflow-auto" style={{maxHeight:380, paddingRight:4}}>
+          <div ref={boxRef} className="grid gap-2 overflow-auto" style={{maxHeight:380, paddingRight:4}}>
             {messages.length===0 && <div className="muted">Ask for swaps, lower salt, chicken-only meals, knee-friendly workouts, etc.</div>}
             {messages.map((m,i)=>(
               <div key={i} className={m.role==='user' ? 'self-end' : 'self-start'}>
@@ -116,9 +146,10 @@ export default function ChatCoach(){
               </div>
             ))}
             {busy && <div className="muted">Thinking…</div>}
+            {lastError && <div className="muted" style={{color:'var(--danger)', wordBreak:'break-word'}}>Debug: {lastError}</div>}
           </div>
           <div className="flex gap-2">
-            <input className="input flex-1" value={input} onChange={e=>setInput(e.target.value)} placeholder="e.g. No beef; knee pain today" />
+            <input className="input flex-1" value={input} onChange={e=>setInput(e.target.value)} placeholder="e.g. No beef; knee pain today" onKeyDown={(e)=>{ if(e.key==='Enter' && !busy) onSend() }} />
             <button className="button" onClick={onSend} disabled={busy}>Send</button>
           </div>
         </div>
