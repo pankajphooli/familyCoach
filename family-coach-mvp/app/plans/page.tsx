@@ -109,6 +109,48 @@ export default function PlansPage(){
     ]
   }
 
+  // NEW: varied workouts for each weekday
+  function pickWorkoutFor(dayIndex:number){
+    const plans = [
+      [
+        { kind:'warmup',  title:'Light cardio',              details:'5–8 min brisk walk or cycle' },
+        { kind:'circuit', title:'Full body circuit',         details:'3 rounds: 12 squats • 10 push-ups (knees ok) • 12 lunges/leg • 30s plank' },
+        { kind:'cooldown',title:'Stretch',                   details:'5 min full-body stretch' },
+      ],
+      [
+        { kind:'warmup',  title:'Band/arm warm-up',          details:'2×15 band pull-aparts + arm circles' },
+        { kind:'circuit', title:'Upper + core',              details:'3 rounds: 12 rows (dumbbell/band) • 10 incline push-ups • 12 shoulder taps/side' },
+        { kind:'cooldown',title:'Stretch',                   details:'Chest + shoulders + thoracic 5 min' },
+      ],
+      [
+        { kind:'warmup',  title:'Easy cardio',               details:'5 min easy walk' },
+        { kind:'circuit', title:'Steady cardio',             details:'25–30 min at RPE 6/10 (jog, cycle, brisk walk)' },
+        { kind:'cooldown',title:'Core finisher',             details:'3×30s side planks + 3×10 bird-dogs/side' },
+      ],
+      [
+        { kind:'warmup',  title:'Hips/ankles warm-up',       details:'Leg swings, ankle circles 2 min' },
+        { kind:'circuit', title:'Lower body',                details:'3 rounds: 12 goblet squats • 12 RDLs • 12 step-ups/leg' },
+        { kind:'cooldown',title:'Stretch',                   details:'Quads/hamstrings/hips 5 min' },
+      ],
+      [
+        { kind:'warmup',  title:'Dynamic mobility',          details:'Cat-cow, world’s greatest stretch 3 min' },
+        { kind:'circuit', title:'Mobility + core flow',      details:'3 rounds: 8 inchworms • 12 dead-bugs/side • 10 glute bridges' },
+        { kind:'cooldown',title:'Breathing + stretch',       details:'Box breathing 2 min + stretch 3 min' },
+      ],
+      [
+        { kind:'warmup',  title:'Jog/walk warm-up',          details:'5–8 min easy' },
+        { kind:'circuit', title:'Intervals',                 details:'10×(1 min harder / 1 min easy) at RPE 7–8/10' },
+        { kind:'cooldown',title:'Walk + stretch',            details:'5 min walk + calves/hips stretch' },
+      ],
+      [
+        { kind:'warmup',  title:'Gentle limbering',          details:'Neck/shoulders/hips 2–3 min' },
+        { kind:'circuit', title:'Active recovery',           details:'30–45 min easy walk or light bike' },
+        { kind:'cooldown',title:'Relax + stretch',           details:'Light full-body stretch 5 min' },
+      ],
+    ]
+    return plans[dayIndex % plans.length]
+  }
+
   async function ensureMealsForDay(userId: string, pdId: string, dayIndex:number, pattern:string|null){
     const { data: existing } = await supabase.from('meals').select('id').eq('plan_day_id', pdId)
     if(existing && existing.length>0) return
@@ -117,14 +159,10 @@ export default function PlansPage(){
     if(insM.error){ console.warn('meals insert error', insM.error); notify('error','Could not create meals (RLS).') }
   }
 
-  async function ensureWorkoutForDay(userId: string, wdId: string){
+  async function ensureWorkoutForDay(userId: string, wdId: string, dayIndex:number){
     const { data: existing } = await supabase.from('workout_blocks').select('id').eq('workout_day_id', wdId)
     if(existing && existing.length>0) return
-    const blocks = [
-      { kind: 'warmup', title: 'Light cardio', details: '5–10 min brisk walk' },
-      { kind: 'circuit', title: 'Bodyweight circuit', details: '3x rounds: 10 squats, 10 push-ups (knees ok), 20s plank' },
-      { kind: 'cooldown', title: 'Stretch', details: '5 min full-body stretch' },
-    ]
+    const blocks = pickWorkoutFor(dayIndex)
     const insB = await supabase.from('workout_blocks').insert(blocks.map(b=>({ ...b, workout_day_id: wdId })))
     if(insB.error){ console.warn('workout_blocks insert error', insB.error); notify('error','Could not create workout blocks (RLS).') }
   }
@@ -149,7 +187,7 @@ export default function PlansPage(){
         if(insW.error){ console.warn('workout_days insert error', insW.error); notify('error','Workout auto-create blocked by permissions.'); continue }
         wd = { id: (insW.data as any).id }
       }
-      await ensureWorkoutForDay(userId, (wd as any).id)
+      await ensureWorkoutForDay(userId, (wd as any).id, i)
     }
   }
 
