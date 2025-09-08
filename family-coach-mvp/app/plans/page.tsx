@@ -350,6 +350,9 @@ export default function PlansPage(){
       </section>
 
       {busy && <div className="muted">Refreshing…</div>}
+
+      <ChatCoach />
+      
     </div>
   )
 }
