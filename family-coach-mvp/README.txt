@@ -1,0 +1,1 @@
+Add /app/plans/page.tsx and change the nav label in app/layout.tsx from 'Today' to 'Plans' (and optionally link to /plans).
