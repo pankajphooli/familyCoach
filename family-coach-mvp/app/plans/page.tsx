@@ -30,6 +30,8 @@ function rangeMonToSun(monday: Date){
 }
 
 export default function PlansPage(){
+  function notify(msg:string){ if (typeof window !== 'undefined') (window as any).toast?.('error', msg) || alert(msg) }
+
   const supabase = createClient()
   const [busy, setBusy] = useState(false)
   const [dietView, setDietView] = useState<'today'|'week'>('today')
@@ -203,8 +205,8 @@ export default function PlansPage(){
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-medium">Diet plan</h2>
           <div className="flex items-center gap-2">
-            <button className={dietView==='today'?'button':'button-outline'} onClick={()=>setDietView('today')}>Today</button>
-            <button className={dietView==='week'?'button':'button-outline'} onClick={()=>setDietView('week')}>Week</button>
+            <button className={'button'} onClick={()=>setDietView('today')} style={dietView==='today'?undefined:{opacity:.7}}>Today</button>
+            <button className={'button'} onClick={()=>setDietView('week')} style={dietView==='week'?undefined:{opacity:.7}}>Week</button>
           </div>
         </div>
 
@@ -253,8 +255,8 @@ export default function PlansPage(){
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-medium">Exercise plan</h2>
           <div className="flex items-center gap-2">
-            <button className={workoutView==='today'?'button':'button-outline'} onClick={()=>setWorkoutView('today')}>Today</button>
-            <button className={workoutView==='week'?'button':'button-outline'} onClick={()=>setWorkoutView('week')}>Week</button>
+            <button className={'button'} onClick={()=>setWorkoutView('today')} style={workoutView==='today'?undefined:{opacity:.7}}>Today</button>
+            <button className={'button'} onClick={()=>setWorkoutView('week')} style={workoutView==='week'?undefined:{opacity:.7}}>Week</button>
           </div>
         </div>
 
