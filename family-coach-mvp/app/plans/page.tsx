@@ -23,6 +23,7 @@ function mondayOfWeek(d: Date){
   if(day>1){ dd.setDate(dd.getDate()-(day-1)) }
   return dd
 }
+function ymdLocal(d: Date){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}` }
 function rangeMonToSun(monday: Date){
   const arr: Date[] = []
   for(let i=0;i<7;i++){ const d = new Date(monday); d.setDate(monday.getDate()+i); arr.push(d) }
@@ -47,7 +48,53 @@ export default function PlansPage(){
   const [detailFor, setDetailFor] = useState<string>('')
   const [exerciseDetail, setExerciseDetail] = useState<{description?: string|null, image_url?: string|null, sets?: any, reps?: any} | null>(null)
 
-  const todayStr = useMemo(()=> ymd(new Date()), [])
+  const todayStr = useMemo(()=> ymdLocal(new Date()), [])
+
+  async function pickMealsFor(dayIndex:number, pattern:string|null){
+    try{
+      let names:string[] = []
+      const tags = ['Breakfast','Lunch','Dinner']
+      for(const tag of tags){
+        let q:any = supabase.from('recipes').select('name').ilike('tags', `%${tag}%`).limit(1).range(dayIndex, dayIndex)
+        if(pattern) q = q.eq('dietary_pattern', pattern)
+        const { data } = await q
+        if(data && data.length){ names.push(data[0].name); continue }
+        names.push('')
+      }
+      if(names.some(n=>n)) return [
+        { meal_type: 'breakfast', recipe_name: names[0] || 'Oat Bowl' },
+        { meal_type: 'lunch',     recipe_name: names[1] || 'Grilled Chicken Salad' },
+        { meal_type: 'dinner',    recipe_name: names[2] || 'Veg Stir Fry' },
+      ]
+    }catch(e){}
+
+    const omni = [
+      ['Oat Bowl','Chicken Wrap','Salmon & Greens'],
+      ['Greek Yogurt Parfait','Turkey Salad','Pasta Primavera'],
+      ['Egg Scramble','Quinoa Bowl','Stir Fry Veg + Tofu'],
+      ['Smoothie Bowl','Grilled Chicken Salad','Beef & Veg Skillet'],
+      ['Avocado Toast','Tuna Sandwich','Curry & Rice'],
+      ['Pancakes (light)','Sushi Bowl','Veggie Chili'],
+      ['Muesli & Milk','Chicken Rice Bowl','Baked Fish & Veg']
+    ]
+    const veg = [
+      ['Oat Bowl','Paneer Wrap','Chana Masala & Rice'],
+      ['Greek Yogurt Parfait','Caprese Sandwich','Veg Biryani'],
+      ['Tofu Scramble','Quinoa Bowl','Stir Fry Veg + Tofu'],
+      ['Smoothie Bowl','Lentil Salad','Veggie Pasta'],
+      ['Avocado Toast','Grilled Halloumi Salad','Thai Green Curry (veg)'],
+      ['Pancakes (light)','Sushi Veg Bowl','Veggie Chili'],
+      ['Muesli & Milk','Falafel Wrap','Baked Veg & Beans']
+    ]
+    const bank = (pattern && pattern.toLowerCase().includes('veg')) ? veg : omni
+    const row = bank[dayIndex % bank.length]
+    return [
+      { meal_type: 'breakfast', recipe_name: row[0] },
+      { meal_type: 'lunch',     recipe_name: row[1] },
+      { meal_type: 'dinner',    recipe_name: row[2] },
+    ]
+  }
+
 
   useEffect(()=>{ (async()=>{
     setBusy(true)
@@ -61,8 +108,9 @@ export default function PlansPage(){
   })() }, [])
 
   async function ensureWeekGenerated(userId: string, monday: Date){
-    for(const d of rangeMonToSun(monday)){
-      const dateStr = ymd(d)
+    const prof = await supabase.from('profiles').select('dietary_pattern').eq('id', userId).maybeSingle(); const pattern = (prof.data as any)?.dietary_pattern || null;
+    const days = rangeMonToSun(monday); for(let i=0;i<days.length;i++){ const d = days[i];
+      const dateStr = ymdLocal(d)
       // Diet
       let { data: pd } = await supabase.from('plan_days').select('id').eq('user_id', userId).eq('date', dateStr).maybeSingle()
       if(!pd){
@@ -100,7 +148,7 @@ export default function PlansPage(){
     } else setTodayMeals([])
 
     const mon = mondayOfWeek(new Date())
-    const ymds = rangeMonToSun(mon).map(ymd)
+    const ymds = rangeMonToSun(mon).map(ymdLocal)
     const { data: pds } = await supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', ymds)
     const grouped: Record<string, Meal[]> = {}
     if(pds?.length){
@@ -110,6 +158,8 @@ export default function PlansPage(){
       }
     }
     setWeekMeals(grouped)
+    // Fallback from week map
+    if((todayMeals?.length||0)===0){ const t = grouped[todayStr]; if(t && t.length) setTodayMeals(t) }
 
     const { data: todayWd } = await supabase.from('workout_days').select('id').eq('user_id', userId).eq('date', todayStr).maybeSingle()
     if(todayWd){
@@ -126,6 +176,7 @@ export default function PlansPage(){
       }
     }
     setWeekBlocks(groupedW)
+    if((todayBlocks?.length||0)===0){ const t = groupedW[todayStr]; if(t && t.length) setTodayBlocks(t) }
   }
 
   function timeFor(meal_type?: string | null){
