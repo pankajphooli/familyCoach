@@ -36,6 +36,9 @@ type Exercise = {
   description?: string|null
 }
 
+type MainTab = 'diet' | 'workout'
+type SubTab = 'today' | 'week'
+
 const MEAL_TIME: Record<string,string> = {
   breakfast: '08:00–09:00',
   snack: '11:00–12:00',
@@ -61,8 +64,13 @@ function normalizeName(s:string){ return s.trim().toLowerCase() }
 export default function PlansPage(){
   const supabase = createClient()
   const [busy, setBusy] = useState(false)
-  const [dietView, setDietView] = useState<'today'|'week'>('today')
-  const [workoutView, setWorkoutView] = useState<'today'|'week'>('today')
+
+  // tabs
+  const [mainTab, setMainTab] = useState<MainTab>('diet')
+  const [dietTab, setDietTab] = useState<SubTab>('today')
+  const [workoutTab, setWorkoutTab] = useState<SubTab>('today')
+
+  // data
   const [todayMeals, setTodayMeals] = useState<Meal[]>([])
   const [weekMeals, setWeekMeals] = useState<Record<string, Meal[]>>({})
   const [todayBlocks, setTodayBlocks] = useState<WorkoutBlock[]>([])
@@ -422,101 +430,122 @@ export default function PlansPage(){
     if(user) await loadAll(user.id)
   }
 
+  const tabBtn = (label:string, active:boolean, onClick: ()=>void) => (
+    <button
+      className="button"
+      onClick={onClick}
+      style={active ? { } : { opacity: .7 }}
+    >
+      {label}
+    </button>
+  )
+
+  const subTabBar = (value:SubTab, set:(v:SubTab)=>void) => (
+    <div className="flex items-center gap-2">
+      {tabBtn('Today', value==='today', ()=>set('today'))}
+      {tabBtn('Week',  value==='week',  ()=>set('week'))}
+    </div>
+  )
+
   return (
     <div className="container" style={{display:'grid', gap:16}}>
       <h1 className="text-2xl font-semibold">Plans</h1>
 
-      {/* Diet section */}
-      <section className="card">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-medium">Diet plan</h2>
-          <div className="flex items-center gap-2">
-            <button className={'button'} onClick={()=>setDietView('today')} style={dietView==='today'?undefined:{opacity:.7}}>Today</button>
-            <button className={'button'} onClick={()=>setDietView('week')}  style={dietView==='week'?undefined:{opacity:.7}}>Week</button>
-          </div>
-        </div>
+      {/* Primary tabs */}
+      <div className="flex items-center gap-2 border-b pb-2">
+        {tabBtn('Diet plan', mainTab==='diet', ()=>setMainTab('diet'))}
+        {tabBtn('Exercise plan', mainTab==='workout', ()=>setMainTab('workout'))}
+      </div>
 
-        {dietView==='today' ? (
-          <div className="grid gap-3">
-            {todayMeals.length===0 && <div className="muted">No meals for today yet.</div>}
-            {todayMeals.map(m=>(
-              <div key={m.id} className="card row" style={{display:'grid', gap:8}}>
-                <div className="flex items-center justify-between">
-                  <div className="font-medium">{m.meal_type || 'Meal'} — <span className="opacity-70">{timeFor(m.meal_type)}</span></div>
-                  <a className="link" href={recipeLink(m.recipe_name)} target="_blank" rel="noreferrer">Recipe ↗</a>
-                </div>
-                <div>{m.recipe_name || 'TBD'}</div>
-                <div className="flex gap-2">
-                  <button className="button-outline" onClick={()=>openIngredients(m)}>Add to grocery</button>
-                  <button className="button-outline" onClick={()=>loadReplacements(m)}>Replace</button>
-                </div>
-              </div>
-            ))}
+      {/* DIET TAB */}
+      {mainTab==='diet' && (
+        <section className="card">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-medium">Diet plan</h2>
+            {subTabBar(dietTab, setDietTab)}
           </div>
-        ) : (
-          <div className="grid gap-4">
-            {Object.keys(weekMeals).length===0 && <div className="muted">No meals for this week yet.</div>}
-            {Object.entries(weekMeals).sort().map(([date, meals]) => (
-              <div key={date} className="card" style={{display:'grid', gap:10}}>
-                <div className="font-medium">{date}</div>
-                <ul className="grid gap-2">
-                  {meals.map(m => (
-                    <li key={m.id} className="flex items-center justify-between">
-                      <div>• {m.meal_type || 'Meal'} — <span className="opacity-70">{timeFor(m.meal_type)}</span> · <span>{m.recipe_name || 'TBD'}</span></div>
-                      <div className="flex gap-2">
-                        <a className="link" href={recipeLink(m.recipe_name)} target="_blank" rel="noreferrer">Recipe ↗</a>
-                        <button className="button-outline" onClick={()=>openIngredients(m)}>Add to grocery</button>
-                        <button className="button-outline" onClick={()=>loadReplacements(m)}>Replace</button>
+
+          {dietTab==='today' ? (
+            <div className="grid gap-3">
+              {todayMeals.length===0 && <div className="muted">No meals for today yet.</div>}
+              {todayMeals.map(m=>(
+                <div key={m.id} className="card row" style={{display:'grid', gap:8}}>
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium">{m.meal_type || 'Meal'} — <span className="opacity-70">{timeFor(m.meal_type)}</span></div>
+                    <a className="link" href={recipeLink(m.recipe_name)} target="_blank" rel="noreferrer">Recipe ↗</a>
+                  </div>
+                  <div>{m.recipe_name || 'TBD'}</div>
+                  <div className="flex gap-2">
+                    <button className="button-outline" onClick={()=>openIngredients(m)}>Add to grocery</button>
+                    <button className="button-outline" onClick={()=>loadReplacements(m)}>Replace</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {Object.keys(weekMeals).length===0 && <div className="muted">No meals for this week yet.</div>}
+              {Object.entries(weekMeals).sort().map(([date, meals]) => (
+                <div key={date} className="card" style={{display:'grid', gap:10}}>
+                  <div className="font-medium">{date}</div>
+                  <ul className="grid gap-2">
+                    {meals.map(m => (
+                      <li key={m.id} className="flex items-center justify-between">
+                        <div>• {m.meal_type || 'Meal'} — <span className="opacity-70">{timeFor(m.meal_type)}</span> · <span>{m.recipe_name || 'TBD'}</span></div>
+                        <div className="flex gap-2">
+                          <a className="link" href={recipeLink(m.recipe_name)} target="_blank" rel="noreferrer">Recipe ↗</a>
+                          <button className="button-outline" onClick={()=>openIngredients(m)}>Add to grocery</button>
+                          <button className="button-outline" onClick={()=>loadReplacements(m)}>Replace</button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* WORKOUT TAB */}
+      {mainTab==='workout' && (
+        <section className="card">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-medium">Exercise plan</h2>
+            {subTabBar(workoutTab, setWorkoutTab)}
+          </div>
+
+          {workoutTab==='today' ? (
+            <div className="grid gap-3">
+              {todayBlocks.length===0 && <div className="muted">No workout for today yet.</div>}
+              {todayBlocks.map(b => (
+                <div key={b.id} className="card row" style={{display:'grid', gap:8}}>
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium">{b.title || b.kind || 'Block'}</div>
+                  </div>
+                  <div className="opacity-80">{b.details || '—'}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {Object.keys(weekBlocks).length===0 && <div className="muted">No workouts for this week yet.</div>}
+              {Object.entries(weekBlocks).sort().map(([date, blocks]) => (
+                <div key={date} className="card" style={{display:'grid', gap:8}}>
+                  <div className="font-medium">{date}</div>
+                  <div className="grid gap-2">
+                    {blocks.map(b => (
+                      <div key={b.id} className="flex items-center justify-between">
+                        <div>{b.title || b.kind || 'Block'} — <span className="opacity-70">{b.details || ''}</span></div>
                       </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Workout section */}
-      <section className="card">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-medium">Exercise plan</h2>
-          <div className="flex items-center gap-2">
-            <button className={'button'} onClick={()=>setWorkoutView('today')} style={workoutView==='today'?undefined:{opacity:.7}}>Today</button>
-            <button className={'button'} onClick={()=>setWorkoutView('week')}  style={workoutView==='week'?undefined:{opacity:.7}}>Week</button>
-          </div>
-        </div>
-
-        {workoutView==='today' ? (
-          <div className="grid gap-3">
-            {todayBlocks.length===0 && <div className="muted">No workout for today yet.</div>}
-            {todayBlocks.map(b => (
-              <div key={b.id} className="card row" style={{display:'grid', gap:8}}>
-                <div className="flex items-center justify-between">
-                  <div className="font-medium">{b.title || b.kind || 'Block'}</div>
+                    ))}
+                  </div>
                 </div>
-                <div className="opacity-80">{b.details || '—'}</div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid gap-4">
-            {Object.keys(weekBlocks).length===0 && <div className="muted">No workouts for this week yet.</div>}
-            {Object.entries(weekBlocks).sort().map(([date, blocks]) => (
-              <div key={date} className="card" style={{display:'grid', gap:8}}>
-                <div className="font-medium">{date}</div>
-                <div className="grid gap-2">
-                  {blocks.map(b => (
-                    <div key={b.id} className="flex items-center justify-between">
-                      <div>{b.title || b.kind || 'Block'} — <span className="opacity-70">{b.details || ''}</span></div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Ingredients modal */}
       {ingredientsFor && (
