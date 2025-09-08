@@ -467,7 +467,7 @@ export default function PlansPage(){
       )}
 
       {busy && <div className="muted">Refreshing…</div>}
+      <ChatCoach />
     </div>
-    <ChatCoach />
   )
 }
