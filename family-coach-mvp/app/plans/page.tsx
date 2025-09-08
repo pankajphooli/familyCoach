@@ -314,7 +314,7 @@ export default function PlansPage(){
   return (
     <div className="container" style={{display:'grid', gap:16}}>
       <h1 className="text-2xl font-semibold">Plans</h1>
-
+      <ChatCoach />
       {/* Diet section */}
       <section className="card">
         <div className="flex items-center justify-between">
@@ -467,7 +467,7 @@ export default function PlansPage(){
       )}
 
       {busy && <div className="muted">Refreshing…</div>}
-      <ChatCoach />
+      
     </div>
   )
 }
