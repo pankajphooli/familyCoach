@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '../../lib/supabaseClient'
+import dynamic from 'next/dynamic'
+const ChatCoach = dynamic(() => import('../components/ChatCoach'), { ssr: false })
+
 
 type Meal = { id: string; plan_day_id: string; meal_type: string; recipe_name: string | null }
 type WorkoutBlock = { id: string; workout_day_id: string; kind?: string | null; title?: string | null; details?: string | null }
@@ -465,5 +468,6 @@ export default function PlansPage(){
 
       {busy && <div className="muted">Refreshing…</div>}
     </div>
+    <ChatCoach />
   )
 }
