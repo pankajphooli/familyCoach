@@ -20,9 +20,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }){
               <Link href="/family">Family</Link>
               <Link href="/calendar">Calendar</Link>
               <Link href="/grocery">Grocery</Link>
-// OLD
-//            <Link href="/today">Today</Link>
-// New
               <Link href="/plans">Plans</Link>
               <Link href="/progress">Progress</Link>
               
