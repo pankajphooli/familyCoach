@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabaseclient'
+import { createClient } from '../../../lib/supabaseclient'
 
 export default function MobileHeader({ title='HouseholdHQ' }: { title?: string }){
   const [open, setOpen] = useState(false)
