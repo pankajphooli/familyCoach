@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 
 type Meal = { id: string; plan_day_id: string; meal_type: string; recipe_name: string | null }
@@ -70,11 +70,13 @@ function mealTagFor(mealType: string){
 function pickFrom<T>(arr:T[], index:number, fallback:T): T{ return arr.length ? (arr[index % arr.length] || arr[0]) : fallback }
 
 export default function PlansPage(){
-  // Inline supabase client
+  // Inline supabase client (browser)
   const supabase = useMemo(()=>{
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-    return createSupabaseClient(url, anon)
+    return createSupabaseClient(url, anon, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+    })
   }, [])
 
   const [busy, setBusy] = useState(false)
@@ -92,6 +94,7 @@ export default function PlansPage(){
   const [altOptions, setAltOptions] = useState<string[]>([])
   const [profile, setProfile] = useState<Profile|null>(null)
   const [needLogin, setNeedLogin] = useState(false)
+  const unsubRef = useRef<ReturnType<typeof supabase.auth.onAuthStateChange> | null>(null)
 
   const todayStr = useMemo(()=> ymdLocal(new Date()), [])
   const monday = useMemo(()=> mondayOfWeek(new Date()), [])
@@ -105,23 +108,50 @@ export default function PlansPage(){
     }
   }
 
-  useEffect(()=>{ (async()=>{
-    setBusy(true)
-    try{
-      const { data: { user } } = await supabase.auth.getUser()
-      if(!user){ setNeedLogin(true); return }
+  async function boot(userId: string){
+    const profSel = 'dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
+    const profRes = await supabase.from('profiles').select(profSel).eq('id', userId).maybeSingle()
+    const prof = (profRes.data || {}) as Profile
+    setProfile(prof)
+    await ensureWeek(userId, prof)
+    await loadAll(userId)
+  }
 
-      const profSel = 'dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
-      const profRes = await supabase.from('profiles').select(profSel).eq('id', user.id).maybeSingle()
-      setProfile((profRes.data || null) as Profile)
-
-      // Always ensure (no localStorage gate) – if records exist nothing will be inserted
-      await ensureWeek(user.id, (profRes.data || {}) as Profile)
-      await loadAll(user.id)
-    } catch (e){
-      console.warn('Init error', e)
-    } finally { setBusy(false) }
-  })() }, [])
+  useEffect(()=>{
+    let cancelled = false
+    ;(async()=>{
+      setBusy(true)
+      try{
+        // getSession is more reliable during initial hydration
+        const { data: { session } } = await supabase.auth.getSession()
+        if(session?.user){
+          if(!cancelled) await boot(session.user.id)
+        }else{
+          setNeedLogin(true)
+          // wait for a sign-in event (or initial hydration on some setups)
+          const sub = supabase.auth.onAuthStateChange((_evt, maybeSession)=>{
+            if(maybeSession?.user){
+              setNeedLogin(false)
+              boot(maybeSession.user.id)
+              // unsubscribe after first hit
+              sub.data.subscription.unsubscribe()
+              unsubRef.current = null
+            }
+          })
+          unsubRef.current = sub
+        }
+      } catch (e){
+        console.warn('Init error', e)
+      } finally { if(!cancelled) setBusy(false) }
+    })()
+    return ()=>{
+      cancelled = true
+      if(unsubRef.current){
+        try{ unsubRef.current.data.subscription.unsubscribe() }catch{}
+        unsubRef.current = null
+      }
+    }
+  }, [])
 
   // -------- Constraints --------
   function isRecipeAllowed(rec: Recipe, prof: Profile){
@@ -307,27 +337,28 @@ export default function PlansPage(){
   }
 
   async function addIngredientsToGrocery(items: string[]){
-    const { data: { user } } = await supabase.auth.getUser()
-    if(!user){ notify('error','Sign in first'); return }
+    const { data: { session } } = await supabase.auth.getSession()
+    const userId = session?.user?.id
+    if(!userId){ notify('error','Sign in first'); return }
     if(items.length===0){ notify('error','No structured ingredients found for this recipe'); return }
     const counts: Record<string, number> = {}
     for(const raw of items){ const name = normalizeName(raw); counts[name] = (counts[name]||0) + 1 }
     for(const [name, qty] of Object.entries(counts)){
       // try grocery_items first
-      let ex = await supabase.from('grocery_items').select('id, quantity').eq('user_id', user.id).eq('name', name).maybeSingle()
+      let ex = await supabase.from('grocery_items').select('id, quantity').eq('user_id', userId).eq('name', name).maybeSingle()
       if(ex.data){
         const cur = (ex.data as any).quantity ?? 1
         await supabase.from('grocery_items').update({ quantity: cur + qty }).eq('id', (ex.data as any).id)
       }else{
-        const ins = await supabase.from('grocery_items').insert({ user_id: user.id, name, done:false, quantity: qty })
+        const ins = await supabase.from('grocery_items').insert({ user_id: userId, name, done:false, quantity: qty })
         if(ins.error){
           // fallback to shopping_items if your schema uses that table
-          let ex2 = await supabase.from('shopping_items').select('id, quantity').eq('user_id', user.id).eq('name', name).maybeSingle()
+          let ex2 = await supabase.from('shopping_items').select('id, quantity').eq('user_id', userId).eq('name', name).maybeSingle()
           if(ex2.data){
             const cur = (ex2.data as any).quantity ?? 1
             await supabase.from('shopping_items').update({ quantity: cur + qty }).eq('id', (ex2.data as any).id)
           }else{
-            await supabase.from('shopping_items').insert({ user_id: user.id, name, done:false, quantity: qty })
+            await supabase.from('shopping_items').insert({ user_id: userId, name, done:false, quantity: qty })
           }
         }
       }
@@ -366,8 +397,9 @@ export default function PlansPage(){
   async function replaceMeal(mealId: string, name: string){
     await supabase.from('meals').update({ recipe_name: name }).eq('id', mealId)
     setReplacingId(null); setAltOptions([])
-    const { data: { user } } = await supabase.auth.getUser()
-    if(user) await loadAll(user.id)
+    const { data: { session } } = await supabase.auth.getSession()
+    const userId = session?.user?.id
+    if(userId) await loadAll(userId)
   }
 
   // -------- UI actions --------
@@ -382,7 +414,19 @@ export default function PlansPage(){
   )
 
   if (needLogin) {
-    return <div className="muted">Please sign in</div>
+    return (
+      <div className="container" style={{display:'grid', gap:12}}>
+        <h1 className="text-2xl font-semibold">Plans</h1>
+        <div className="card">
+          <div className="font-medium mb-2">Please sign in</div>
+          <div className="muted">Your session isn’t available yet. If you just signed in, give it a second or use the menu to sign in again.</div>
+          <button className="button-outline mt-3" onClick={async()=>{
+            const { data: { session } } = await supabase.auth.getSession()
+            if(session?.user){ setNeedLogin(false); await boot(session.user.id) }
+          }}>Retry</button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -398,26 +442,29 @@ export default function PlansPage(){
       <div className="flex gap-2">
         <button className="button-outline" onClick={async ()=>{
           setBusy(true)
-          const { data: { user } } = await supabase.auth.getUser()
-          if(!user || !profile){ setBusy(false); return }
-          await ensureDietForDate(user.id, todayStr, profile)
-          await loadAll(user.id); setBusy(false); notify('success','Diet generated for today')
+          const { data: { session } } = await supabase.auth.getSession()
+          const userId = session?.user?.id
+          if(!userId || !profile){ setBusy(false); return }
+          await ensureDietForDate(userId, todayStr, profile)
+          await loadAll(userId); setBusy(false); notify('success','Diet generated for today')
         }}>Generate today’s diet</button>
 
         <button className="button-outline" onClick={async ()=>{
           setBusy(true)
-          const { data: { user } } = await supabase.auth.getUser()
-          if(!user || !profile){ setBusy(false); return }
-          await ensureWorkoutForDate(user.id, todayStr, profile)
-          await loadAll(user.id); setBusy(false); notify('success','Workout generated for today')
+          const { data: { session } } = await supabase.auth.getSession()
+          const userId = session?.user?.id
+          if(!userId || !profile){ setBusy(false); return }
+          await ensureWorkoutForDate(userId, todayStr, profile)
+          await loadAll(userId); setBusy(false); notify('success','Workout generated for today')
         }}>Generate today’s workout</button>
 
         <button className="button-outline" onClick={async ()=>{
           setBusy(true)
-          const { data: { user } } = await supabase.auth.getUser()
-          if(!user || !profile){ setBusy(false); return }
-          await ensureWeek(user.id, profile)
-          await loadAll(user.id); setBusy(false); notify('success','Generated week plans')
+          const { data: { session } } = await supabase.auth.getSession()
+          const userId = session?.user?.id
+          if(!userId || !profile){ setBusy(false); return }
+          await ensureWeek(userId, profile)
+          await loadAll(userId); setBusy(false); notify('success','Generated week plans')
         }}>Generate this week</button>
       </div>
 
