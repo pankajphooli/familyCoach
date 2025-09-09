@@ -22,6 +22,7 @@ const MEAL_TIME: Record<string,string> = {
 function ymdLocal(d: Date){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}` }
 function mondayOfWeek(d: Date){ const dd=new Date(d.getFullYear(), d.getMonth(), d.getDate()); const w=dd.getDay()||7; if(w>1) dd.setDate(dd.getDate()-(w-1)); return dd }
 function datesMonToSun(mon: Date){ return Array.from({length:7},(_,i)=>{ const d=new Date(mon); d.setDate(mon.getDate()+i); return d }) }
+function projectRef(url:string){ try{ return new URL(url).hostname.split('.')[0] }catch{ return '' } }
 
 function recipeLink(name?:string|null){ if(!name) return '#'; const q = encodeURIComponent(`${name} recipe`); return `https://www.google.com/search?q=${q}` }
 
@@ -41,36 +42,40 @@ export default function PlansPage(){
   const weekDates = useMemo(()=> datesMonToSun(monday).map(ymdLocal), [monday])
 
   const [selectedDate, setSelectedDate] = useState<string>(todayStr)
-
   const [byDateMeals, setByDateMeals] = useState<Record<string, Meal[]>>({})
   const [byDateBlocks, setByDateBlocks] = useState<Record<string, WorkoutBlock[]>>({})
   const [needsAuth, setNeedsAuth] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  // -------- auth + boot ----------
-  async function userId(): Promise<string|null>{
+  // --- robust auth (falls back to localStorage key) ---
+  async function getUserId(): Promise<string|null>{
     const { data: { session } } = await supabase.auth.getSession()
-    return session?.user?.id ?? null
+    if(session?.user?.id) return session.user.id
+    try{ const { data: { user } } = await supabase.auth.getUser(); if(user?.id) return user.id }catch{}
+    try{
+      const ref = projectRef(process.env.NEXT_PUBLIC_SUPABASE_URL || '')
+      const key = `sb-${ref}-auth-token`
+      const raw = typeof window!=='undefined' ? window.localStorage.getItem(key) : null
+      if(raw){ const parsed = JSON.parse(raw); return parsed?.currentSession?.user?.id || parsed?.user?.id || null }
+    }catch{}
+    return null
   }
 
   async function ensureWeek(uid:string){
-    // ensure plan/workout entities exist for this week
     for(const d of weekDates){
-      // plan days
+      // plan day
       const pd = await supabase.from('plan_days').select('id').eq('user_id', uid).eq('date', d).maybeSingle()
       let pdId = (pd.data as any)?.id
       if(!pdId){
         const ins = await supabase.from('plan_days').insert({ user_id: uid, date: d }).select('id').single()
         pdId = (ins.data as any).id
-        // add defaults
         await supabase.from('meals').insert([
           { plan_day_id: pdId, meal_type:'breakfast', recipe_name:'Oat Bowl' },
           { plan_day_id: pdId, meal_type:'lunch',     recipe_name:'Chicken Wrap' },
           { plan_day_id: pdId, meal_type:'dinner',    recipe_name:'Veg Stir Fry' },
         ])
       }
-
-      // workout days
+      // workout day
       const wd = await supabase.from('workout_days').select('id').eq('user_id', uid).eq('date', d).maybeSingle()
       let wdId = (wd.data as any)?.id
       if(!wdId){
@@ -94,13 +99,11 @@ export default function PlansPage(){
     ])
     const pds = (pdRes.data||[]) as PlanDay[]
     const wds = (wdRes.data||[]) as WorkoutDay[]
-
     const mealRes = pds.length ? await supabase.from('meals').select('*').in('plan_day_id', pds.map(p=>p.id)) : { data: [] as any[] }
     const blockRes = wds.length ? await supabase.from('workout_blocks').select('*').in('workout_day_id', wds.map(w=>w.id)) : { data: [] as any[] }
 
     const meals = (mealRes.data||[]) as Meal[]
     const blocks = (blockRes.data||[]) as WorkoutBlock[]
-
     const mealsBy: Record<string, Meal[]> = {}; weekDates.forEach(d=> mealsBy[d]=[])
     const blocksBy: Record<string, WorkoutBlock[]> = {}; weekDates.forEach(d=> blocksBy[d]=[])
 
@@ -111,18 +114,23 @@ export default function PlansPage(){
   }
 
   useEffect(()=>{
+    let unsub: any
     (async()=>{
       setBusy(true)
-      const uid = await userId()
+      const uid = await getUserId()
       if(!uid){ setNeedsAuth(true); setBusy(false); return }
       await ensureWeek(uid)
       await loadWeek(uid)
       setNeedsAuth(false); setBusy(false)
+      unsub = supabase.auth.onAuthStateChange((_evt, sess)=>{
+        if(sess?.user){ (async()=>{ await ensureWeek(sess.user.id); await loadWeek(sess.user.id) })() }
+      }).data.subscription
     })()
+    return ()=>{ try{ unsub?.unsubscribe() }catch{} }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // -------- UI helpers ----------
+  // ---- UI helpers ----
   function Seg({left, right, value, onChange}:{left:string; right:string; value:'left'|'right'; onChange:(v:'left'|'right')=>void}){
     return (
       <div className="rounded-full border p-1 bg-muted/30" style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:2}}>
@@ -131,7 +139,6 @@ export default function PlansPage(){
       </div>
     )
   }
-
   function SubTabs({value, onChange}:{value:SubTab; onChange:(v:SubTab)=>void}){
     return (
       <div className="flex items-center gap-6 px-1">
@@ -143,7 +150,6 @@ export default function PlansPage(){
       </div>
     )
   }
-
   function DatePills({dates, value, onChange}:{dates:string[]; value:string; onChange:(d:string)=>void}){
     return (
       <div style={{display:'flex', gap:10, overflowX:'auto', padding:'8px 2px'}}>
@@ -160,38 +166,14 @@ export default function PlansPage(){
     )
   }
 
-  // -------- actions ----------
-  async function addToGrocery(recipeName:string|null){
-    if(!recipeName) return
-    const { data: rec } = await supabase.from('recipes').select('ingredients').ilike('name', recipeName).maybeSingle()
-    const list: string[] = (rec as any)?.ingredients || []
-    if(!list.length){ if(typeof window!=='undefined') (window as any).toast?.('error','No structured ingredients'); return }
-    const { data: { user } } = await supabase.auth.getUser()
-    if(!user){ (window as any).toast?.('error','Sign in'); return }
-    // add each as single row; increment quantity if exists
-    const counts: Record<string, number> = {}
-    for(const raw of list){ const name = String(raw).trim().toLowerCase(); counts[name]=(counts[name]||0)+1 }
-    for(const [name, qty] of Object.entries(counts)){
-      const ex = await supabase.from('grocery_items').select('id,quantity').eq('user_id', user.id).eq('name', name).maybeSingle()
-      if(ex.data){
-        const cur = (ex.data as any).quantity ?? 1
-        await supabase.from('grocery_items').update({ quantity: cur + (qty as number) }).eq('id', (ex.data as any).id)
-      }else{
-        await supabase.from('grocery_items').insert({ user_id: user.id, name, quantity: qty, done:false })
-      }
-    }
-    (window as any).toast?.('success','Added to grocery')
-  }
-
-  // -------- render blocks ----------
   const mealsToday = byDateMeals[selectedDate] || []
   const blocksToday = byDateBlocks[selectedDate] || []
 
   return (
-    <div className="container" style={{paddingBottom:80, display:'grid', gap:16}}>
+    <div className="container" style={{paddingBottom:'calc(84px + env(safe-area-inset-bottom))', display:'grid', gap:16}}>
       <h1 className="text-2xl font-semibold">Plans</h1>
 
-      {needsAuth && <div className="card">Please sign in.</div>}
+      {needsAuth && <div className="card">Please sign in from the Profile tab.</div>}
 
       <div className="flex items-center gap-3">
         <Seg left="Diet" right="Exercise" value={mainTab==='diet'?'left':'right'} onChange={(v)=>setMainTab(v==='left'?'diet':'workout')} />
@@ -215,7 +197,6 @@ export default function PlansPage(){
               <div className="text-sm opacity-80">{MEAL_TIME[m.meal_type] || '—'}</div>
               <div className="flex items-center gap-2 ml-4">
                 <button className="button-outline" onClick={()=> (window as any).open(recipeLink(m.recipe_name),'_blank') }>Recipe</button>
-                <button className="button-outline" onClick={()=> addToGrocery(m.recipe_name)}>Add to Grocery</button>
               </div>
             </div>
           ))}
