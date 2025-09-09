@@ -56,7 +56,7 @@ function mondayOfWeek(d: Date){
 }
 function datesMonToSun(monday: Date){
   const arr: Date[] = []
-  for(let i=0;i<7;i++){ const d = new Date(monday); d.setDate(monday.getDate()+i); arr.push(d) }
+  for(let i=0;i<7;i++){ const d = new Date(monday); d.setDate(monday.getDate()+i); arr.append(d) }
   return arr
 }
 function normalizeName(s:string){ return (s||'').trim().toLowerCase() }
@@ -176,30 +176,30 @@ export default function PlansPage(){
         // allow broader non_veg for chicken-only, then filter meats by name below
       }
     }
-    const allergies = (prof?.allergies||[]).map(normalizeName)
-    const dislikes = (prof?.dislikes||[]).map(normalizeName)
+    const allergies: string[] = ((prof?.allergies||[]) as string[]).map(normalizeName)
+    const dislikes: string[] = ((prof?.dislikes||[]) as string[]).map(normalizeName)
 
     const recAllergens: string[] = (rec.allergens || []).map((x:any)=>normalizeName(String(x)))
-    if(allergies.length && recAllergens.some(a => allergies.includes(a))) return false
+    if(allergies.length && recAllergens.some((a:string) => allergies.includes(a))) return false
 
     const nameLc = normalizeName(rec.name || '')
-    if(dislikes.length && dislikes.some(d => d && nameLc.includes(d))) return false
+    if(dislikes.length && dislikes.some((d:string) => d && nameLc.includes(d))) return false
 
     const meatPolicy = normalizeName(prof?.meat_policy||'')
     if(meatPolicy==='non_veg_chicken_only'){
       const banned = ['beef','pork','bacon','mutton','lamb','fish','salmon','tuna','prawn','shrimp','shellfish']
-      if(banned.some(b => nameLc.includes(b))) return false
+      if(banned.some((b:string) => nameLc.includes(b))) return false
     }
     return true
   }
 
   function isExerciseAllowed(ex: Exercise, prof:any){
-    const eqp = (prof?.equipment||[]).map(normalizeName)
+    const eqp: string[] = ((prof?.equipment||[]) as string[]).map(normalizeName)
     const need: string[] = (ex.equipment||[]).map((x:any)=>normalizeName(String(x)))
     const contra: string[] = (ex.contraindications||[]).map((x:any)=>normalizeName(String(x)))
-    const flags = [...(prof?.injuries||[]), ...(prof?.health_conditions||[])].map(normalizeName)
-    if(need.length && need.some(n => n!=='none' && !eqp.includes(n)) ) return false
-    if(flags.length && contra.some(c => flags.includes(c))) return false
+    const flags: string[] = ([...(prof?.injuries||[]), ...(prof?.health_conditions||[])] as string[]).map(normalizeName)
+    if(need.length && need.some((n:string) => n!=='none' && !eqp.includes(n)) ) return false
+    if(flags.length && contra.some((c:string) => flags.includes(c))) return false
     return true
   }
 
@@ -361,7 +361,7 @@ export default function PlansPage(){
       let ex = await supabase.from('grocery_items').select('id, quantity').eq('user_id', uid).eq('name', name).maybeSingle()
       if(ex.data){
         const cur = (ex.data as any).quantity ?? 1
-        await supabase.from('grocery_items').update({ quantity: cur + qty }).eq('id', (ex.data as any).id)
+        await supabase.from('grocery_items').update({ quantity: cur + (qty as number) }).eq('id', (ex.data as any).id)
       }else{
         const ins = await supabase.from('grocery_items').insert({ user_id: uid, name, done:false, quantity: qty })
         if(ins.error){
@@ -369,7 +369,7 @@ export default function PlansPage(){
           let ex2 = await supabase.from('shopping_items').select('id, quantity').eq('user_id', uid).eq('name', name).maybeSingle()
           if(ex2.data){
             const cur = (ex2.data as any).quantity ?? 1
-            await supabase.from('shopping_items').update({ quantity: cur + qty }).eq('id', (ex2.data as any).id)
+            await supabase.from('shopping_items').update({ quantity: cur + (qty as number) }).eq('id', (ex2.data as any).id)
           }else{
             await supabase.from('shopping_items').insert({ user_id: uid, name, done:false, quantity: qty })
           }
