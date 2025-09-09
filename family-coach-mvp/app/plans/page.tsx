@@ -154,7 +154,7 @@ export default function PlansPage(){
     const need: string[] = (ex.equipment||[]).map((x:any)=>normalizeName(String(x)))
     const contra: string[] = (ex.contraindications||[]).map((x:any)=>normalizeName(String(x)))
     const flags = [...(prof.injuries||[]), ...(prof.health_conditions||[])].map(normalizeName)
-    if(need.length && need.some(n => n!=='none' && !eqp.includes(n))) return false
+    if(need.length && need.some(n => n!=='none' && !eqp.includes(n)) ) return false
     if(flags.length && contra.some(c => flags.includes(c))) return false
     return true
   }
@@ -296,6 +296,80 @@ export default function PlansPage(){
     setTodayBlocks(byDateBlocks[todayStr] || [])
   }
 
+  // -------- Ingredients & Replace --------
+  async function openIngredients(meal: Meal){
+    const recipe = meal.recipe_name || ''
+    setIngredientsFor(recipe)
+    setIngredients([])
+    const { data: rec } = await supabase.from('recipes').select('*').ilike('name', recipe).maybeSingle()
+    const list: string[] = (rec as Recipe | null)?.ingredients || []
+    setIngredients(list || [])
+  }
+
+  async function addIngredientsToGrocery(items: string[]){
+    const { data: { user } } = await supabase.auth.getUser()
+    if(!user){ notify('error','Sign in first'); return }
+    if(items.length===0){ notify('error','No structured ingredients found for this recipe'); return }
+    const counts: Record<string, number> = {}
+    for(const raw of items){ const name = normalizeName(raw); counts[name] = (counts[name]||0) + 1 }
+    for(const [name, qty] of Object.entries(counts)){
+      // try grocery_items first
+      let ex = await supabase.from('grocery_items').select('id, quantity').eq('user_id', user.id).eq('name', name).maybeSingle()
+      if(ex.data){
+        const cur = (ex.data as any).quantity ?? 1
+        await supabase.from('grocery_items').update({ quantity: cur + qty }).eq('id', (ex.data as any).id)
+      }else{
+        const ins = await supabase.from('grocery_items').insert({ user_id: user.id, name, done:false, quantity: qty })
+        if(ins.error){
+          // fallback to shopping_items if your schema uses that table
+          let ex2 = await supabase.from('shopping_items').select('id, quantity').eq('user_id', user.id).eq('name', name).maybeSingle()
+          if(ex2.data){
+            const cur = (ex2.data as any).quantity ?? 1
+            await supabase.from('shopping_items').update({ quantity: cur + qty }).eq('id', (ex2.data as any).id)
+          }else{
+            await supabase.from('shopping_items').insert({ user_id: user.id, name, done:false, quantity: qty })
+          }
+        }
+      }
+    }
+    notify('success','Ingredients added (quantities updated).')
+  }
+
+  async function loadReplacements(meal: Meal){
+    setReplacingId(meal.id)
+    setAltOptions([])
+    const p = (profile || {}) as Profile
+    const tag = mealTagFor(meal.meal_type)
+    const current = normalizeName(meal.recipe_name||'')
+
+    async function querySet(applyDiet:boolean, applyTag:boolean){
+      let q:any = supabase.from('recipes').select('name, dietary_pattern, allergens, cuisine, tags').limit(100)
+      if(applyTag){ q = q.ilike('tags', `%${tag}%`) }
+      if(applyDiet && p.dietary_pattern){ q = q.eq('dietary_pattern', p.dietary_pattern) }
+      const { data } = await q
+      return (data as Recipe[]) || []
+    }
+
+    let candidates: Recipe[] = []
+    const orders:[boolean,boolean][] = [[true,true],[false,true],[true,false],[false,false]]
+    for(const [applyDiet, applyTag] of orders){
+      const set = await querySet(applyDiet, applyTag)
+      const filtered = set.filter((r:Recipe)=> isRecipeAllowed(r, p) && normalizeName(r.name) !== current)
+      candidates = candidates.concat(filtered)
+      const seen = new Set<string>()
+      candidates = candidates.filter(r => { const k = normalizeName(r.name); if(seen.has(k)) return false; seen.add(k); return true })
+      if(candidates.length >= 12) break
+    }
+    setAltOptions(candidates.slice(0,12).map(r=>r.name))
+  }
+
+  async function replaceMeal(mealId: string, name: string){
+    await supabase.from('meals').update({ recipe_name: name }).eq('id', mealId)
+    setReplacingId(null); setAltOptions([])
+    const { data: { user } } = await supabase.auth.getUser()
+    if(user) await loadAll(user.id)
+  }
+
   // -------- UI actions --------
   const tabBtn = (label:string, active:boolean, onClick: ()=>void) => (
     <button className="button" onClick={onClick} style={active ? { } : { opacity: .6 }}>{label}</button>
@@ -365,6 +439,10 @@ export default function PlansPage(){
                     <a className="link" href={recipeLink(m.recipe_name)} target="_blank" rel="noreferrer">Recipe ↗</a>
                   </div>
                   <div>{m.recipe_name || 'TBD'}</div>
+                  <div className="flex gap-2">
+                    <button className="button-outline" onClick={()=>openIngredients(m)}>Add to grocery</button>
+                    <button className="button-outline" onClick={()=>loadReplacements(m)}>Replace</button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -380,6 +458,8 @@ export default function PlansPage(){
                         <div>• {m.meal_type || 'Meal'} — <span className="opacity-70">{MEAL_TIME[m.meal_type] || '—'}</span> · <span>{m.recipe_name || 'TBD'}</span></div>
                         <div className="flex gap-2">
                           <a className="link" href={recipeLink(m.recipe_name)} target="_blank" rel="noreferrer">Recipe ↗</a>
+                          <button className="button-outline" onClick={()=>openIngredients(m)}>Add to grocery</button>
+                          <button className="button-outline" onClick={()=>loadReplacements(m)}>Replace</button>
                         </div>
                       </li>
                     ))}
@@ -431,6 +511,7 @@ export default function PlansPage(){
         </section>
       )}
 
+      {/* Ingredients modal */}
       {ingredientsFor && (
         <div className="modal">
           <div className="modal-card">
@@ -449,6 +530,7 @@ export default function PlansPage(){
         </div>
       )}
 
+      {/* Replacement modal */}
       {replacingId && (
         <div className="modal">
           <div className="modal-card">
