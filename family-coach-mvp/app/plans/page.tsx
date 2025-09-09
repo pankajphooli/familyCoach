@@ -296,7 +296,7 @@ export default function PlansPage(){
 
       if (typeof window !== 'undefined') localStorage.setItem(flagKey, '1')
     }catch(e){
-      print('ensureWeekIfNeeded error', e)
+      console.warn('ensureWeekIfNeeded error', e)
     }
   }
 
