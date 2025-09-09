@@ -1,12 +1,22 @@
 'use client'
-import { useState } from 'react'
+
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '../../../lib/supabaseclient'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 
 export default function MobileHeader({ title='HouseholdHQ' }: { title?: string }){
   const [open, setOpen] = useState(false)
-  const supabase = createClient()
   const router = useRouter()
+
+  // Create Supabase client inline (no local import path headaches)
+  const supabase = useMemo(() => {
+    const url  = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    if (!url || !anon) {
+      console.warn('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY')
+    }
+    return createSupabaseClient(url || '', anon || '')
+  }, [])
 
   async function onSignOut(){
     try{ await supabase.auth.signOut() }catch{}
