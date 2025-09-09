@@ -142,6 +142,46 @@ export default function PlansPage(){
     return arr[index % arr.length] || arr[0]
   }
 
+  // Filter exercises against user's equipment & conditions
+function isExerciseAllowed(ex: Exercise, prof: Profile){
+  const eq = (prof.equipment || []).map(s => String(s).toLowerCase());
+  const need = (ex.equipment || []).map(s => String(s).toLowerCase());
+  // needs equipment you don't have (and not "none") → exclude
+  if (need.length && need.some(n => n !== 'none' && !eq.includes(n))) return false;
+
+  const flags = [...(prof.injuries || []), ...(prof.health_conditions || [])]
+    .map(s => String(s).toLowerCase());
+  const contra = (ex.contraindications || []).map(s => String(s).toLowerCase());
+  // contraindicated with your injuries/conditions → exclude
+  if (flags.length && contra.some(c => flags.includes(c))) return false;
+
+  return true;
+}
+
+// Build a small routine for the day from allowed exercises
+async function pickWorkoutFor(dayIndex: number, prof: Profile){
+  const { data } = await supabase
+    .from('exercises')
+    .select('name,tags,equipment,contraindications,description')
+    .limit(120);
+
+  const exs = (data as Exercise[]) || [];
+  const allowed = exs.filter(ex => isExerciseAllowed(ex, prof));
+
+  // Safe fallbacks if table is light/empty
+  const a = allowed[(dayIndex)   % (allowed.length || 1)] || { name:'Glute bridge', description:'3×12' } as Exercise;
+  const b = allowed[(dayIndex+3) % (allowed.length || 1)] || { name:'Row (band)',   description:'3×12' } as Exercise;
+  const c = allowed[(dayIndex+5) % (allowed.length || 1)] || { name:'Plank',        description:'3×30s'} as Exercise;
+
+  return [
+    { kind:'warmup',  title:'Warm-up',  details:'5–8 min easy walk + mobility' },
+    { kind:'circuit', title:a.name,     details:a.description || '3×12' },
+    { kind:'circuit', title:b.name,     details:b.description || '3×12' },
+    { kind:'circuit', title:c.name,     details:c.description || '3×12' },
+    { kind:'cooldown',title:'Cooldown', details:'Stretch 5 min' }
+  ];
+}
+
   async function ensureWeekIfNeeded(userId: string, prof: Profile){
     const mondayStr = ymdLocal(monday)
     const flagKey = `plans_ensured_${mondayStr}`
