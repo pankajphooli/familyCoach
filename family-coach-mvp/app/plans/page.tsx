@@ -69,6 +69,14 @@ function mealTagFor(mealType: string){
 }
 function pickFrom<T>(arr:T[], index:number, fallback:T): T{ return arr.length ? (arr[index % arr.length] || arr[0]) : fallback }
 
+function projectRefFromUrl(url: string){
+  try{
+    const u = new URL(url)
+    const host = u.hostname // abcdefgh.supabase.co
+    return host.split('.')[0] || ''
+  }catch{ return '' }
+}
+
 export default function PlansPage(){
   // Inline supabase client (browser)
   const supabase = useMemo(()=>{
@@ -92,9 +100,8 @@ export default function PlansPage(){
   const [ingredients, setIngredients] = useState<string[]>([])
   const [replacingId, setReplacingId] = useState<string|null>(null)
   const [altOptions, setAltOptions] = useState<string[]>([])
-  const [profile, setProfile] = useState<Profile|null>(null)
-  const [needLogin, setNeedLogin] = useState(false)
-  const unsubRef = useRef<ReturnType<typeof supabase.auth.onAuthStateChange> | null>(null)
+  const [profile, setProfile] = useState<any>(null)
+  const [needsAuth, setNeedsAuth] = useState(false)
 
   const todayStr = useMemo(()=> ymdLocal(new Date()), [])
   const monday = useMemo(()=> mondayOfWeek(new Date()), [])
@@ -108,62 +115,69 @@ export default function PlansPage(){
     }
   }
 
-  async function boot(userId: string){
+  async function looseUserId(): Promise<string|null>{
+    // 1) primary
+    const { data: { session } } = await supabase.auth.getSession()
+    if(session?.user?.id) return session.user.id
+    // 2) getUser
+    try{
+      const { data: { user } } = await supabase.auth.getUser()
+      if(user?.id) return user.id
+    }catch{}
+    // 3) localStorage fallback (same-origin)
+    try{
+      const ref = projectRefFromUrl((supabase as any).realtime?.url || process.env.NEXT_PUBLIC_SUPABASE_URL || '')
+      const key = `sb-${ref}-auth-token`
+      const raw = typeof window!=='undefined' ? window.localStorage.getItem(key) : null
+      if(raw){
+        const parsed = JSON.parse(raw)
+        const id = parsed?.currentSession?.user?.id || parsed?.user?.id || null
+        if(id) return id
+      }
+    }catch{}
+    return null
+  }
+
+  async function boot(){
+    const uid = await looseUserId()
+    if(!uid){ setNeedsAuth(true); return }
     const profSel = 'dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
-    const profRes = await supabase.from('profiles').select(profSel).eq('id', userId).maybeSingle()
-    const prof = (profRes.data || {}) as Profile
+    const profRes = await supabase.from('profiles').select(profSel).eq('id', uid).maybeSingle()
+    const prof = (profRes.data || {}) as any
     setProfile(prof)
-    await ensureWeek(userId, prof)
-    await loadAll(userId)
+    await ensureWeek(uid, prof)
+    await loadAll(uid)
+    setNeedsAuth(false)
   }
 
   useEffect(()=>{
-    let cancelled = false
+    let dead = false
     ;(async()=>{
       setBusy(true)
       try{
-        // getSession is more reliable during initial hydration
-        const { data: { session } } = await supabase.auth.getSession()
-        if(session?.user){
-          if(!cancelled) await boot(session.user.id)
-        }else{
-          setNeedLogin(true)
-          // wait for a sign-in event (or initial hydration on some setups)
-          const sub = supabase.auth.onAuthStateChange((_evt, maybeSession)=>{
-            if(maybeSession?.user){
-              setNeedLogin(false)
-              boot(maybeSession.user.id)
-              // unsubscribe after first hit
-              sub.data.subscription.unsubscribe()
-              unsubRef.current = null
-            }
-          })
-          unsubRef.current = sub
-        }
-      } catch (e){
-        console.warn('Init error', e)
-      } finally { if(!cancelled) setBusy(false) }
+        await boot()
+        // also subscribe to auth changes; if user logs in later, boot then
+        const sub = supabase.auth.onAuthStateChange((_evt, sess)=>{
+          if(sess?.user && !dead) boot()
+        })
+        return ()=>{ try{ sub.data.subscription.unsubscribe() }catch{} }
+      }catch(e){ console.warn(e) }
+      finally{ if(!dead) setBusy(false) }
     })()
-    return ()=>{
-      cancelled = true
-      if(unsubRef.current){
-        try{ unsubRef.current.data.subscription.unsubscribe() }catch{}
-        unsubRef.current = null
-      }
-    }
+    return ()=>{ dead = true }
   }, [])
 
   // -------- Constraints --------
-  function isRecipeAllowed(rec: Recipe, prof: Profile){
-    const patt = normalizeName(prof.dietary_pattern||'')
+  function isRecipeAllowed(rec: Recipe, prof: any){
+    const patt = normalizeName(prof?.dietary_pattern||'')
     const rp = normalizeName(rec.dietary_pattern||'')
     if(patt){
       if(rp && !rp.includes(patt) && !(patt==='non_veg_chicken_only' && (rp.includes('non_veg') || rp.includes('omnivore')))){
         // allow broader non_veg for chicken-only, then filter meats by name below
       }
     }
-    const allergies = (prof.allergies||[]).map(normalizeName)
-    const dislikes = (prof.dislikes||[]).map(normalizeName)
+    const allergies = (prof?.allergies||[]).map(normalizeName)
+    const dislikes = (prof?.dislikes||[]).map(normalizeName)
 
     const recAllergens: string[] = (rec.allergens || []).map((x:any)=>normalizeName(String(x)))
     if(allergies.length && recAllergens.some(a => allergies.includes(a))) return false
@@ -171,7 +185,7 @@ export default function PlansPage(){
     const nameLc = normalizeName(rec.name || '')
     if(dislikes.length && dislikes.some(d => d && nameLc.includes(d))) return false
 
-    const meatPolicy = normalizeName(prof.meat_policy||'')
+    const meatPolicy = normalizeName(prof?.meat_policy||'')
     if(meatPolicy==='non_veg_chicken_only'){
       const banned = ['beef','pork','bacon','mutton','lamb','fish','salmon','tuna','prawn','shrimp','shellfish']
       if(banned.some(b => nameLc.includes(b))) return false
@@ -179,26 +193,26 @@ export default function PlansPage(){
     return true
   }
 
-  function isExerciseAllowed(ex: Exercise, prof:Profile){
-    const eqp = (prof.equipment||[]).map(normalizeName)
+  function isExerciseAllowed(ex: Exercise, prof:any){
+    const eqp = (prof?.equipment||[]).map(normalizeName)
     const need: string[] = (ex.equipment||[]).map((x:any)=>normalizeName(String(x)))
     const contra: string[] = (ex.contraindications||[]).map((x:any)=>normalizeName(String(x)))
-    const flags = [...(prof.injuries||[]), ...(prof.health_conditions||[])].map(normalizeName)
+    const flags = [...(prof?.injuries||[]), ...(prof?.health_conditions||[])].map(normalizeName)
     if(need.length && need.some(n => n!=='none' && !eqp.includes(n)) ) return false
     if(flags.length && contra.some(c => flags.includes(c))) return false
     return true
   }
 
-  async function recipesForTag(tag:string, prof:Profile, limit=50): Promise<Recipe[]>{
+  async function recipesForTag(tag:string, prof:any, limit=50): Promise<Recipe[]>{
     let q:any = supabase.from('recipes').select('name, dietary_pattern, allergens, tags, ingredients, cuisine').limit(limit)
     q = q.ilike('tags', `%${tag}%`)
-    if(prof.dietary_pattern){ q = q.eq('dietary_pattern', prof.dietary_pattern) }
+    if(prof?.dietary_pattern){ q = q.eq('dietary_pattern', prof.dietary_pattern) }
     const { data } = await q
     const list = (data as Recipe[]) || []
     return list.filter((rec: Recipe) => isRecipeAllowed(rec, prof))
   }
 
-  async function defaultsForMeals(dayIndex:number, prof: Profile){
+  async function defaultsForMeals(dayIndex:number, prof: any){
     try{
       const [b, l, d] = await Promise.all([
         recipesForTag('Breakfast', prof),
@@ -242,7 +256,7 @@ export default function PlansPage(){
     }
   }
 
-  async function pickWorkoutFor(dayIndex:number, prof:Profile){
+  async function pickWorkoutFor(dayIndex:number, prof:any){
     const { data } = await supabase.from('exercises').select('name,tags,equipment,contraindications,description').limit(120)
     const exs = (data as Exercise[]) || []
     const allowed = exs.filter((ex:Exercise) => isExerciseAllowed(ex, prof))
@@ -259,7 +273,7 @@ export default function PlansPage(){
   }
 
   // -------- Ensure helpers --------
-  async function ensureDietForDate(userId:string, dateStr:string, prof:Profile){
+  async function ensureDietForDate(userId:string, dateStr:string, prof:any){
     let pd = await supabase.from('plan_days').select('id').eq('user_id', userId).eq('date', dateStr).maybeSingle()
     let pdId = (pd.data as any)?.id
     if(!pdId){
@@ -274,7 +288,7 @@ export default function PlansPage(){
     }
   }
 
-  async function ensureWorkoutForDate(userId:string, dateStr:string, prof:Profile){
+  async function ensureWorkoutForDate(userId:string, dateStr:string, prof:any){
     let wd = await supabase.from('workout_days').select('id').eq('user_id', userId).eq('date', dateStr).maybeSingle()
     let wdId = (wd.data as any)?.id
     if(!wdId){
@@ -289,7 +303,7 @@ export default function PlansPage(){
     }
   }
 
-  async function ensureWeek(userId: string, prof: Profile){
+  async function ensureWeek(userId: string, prof: any){
     for(const d of weekDates){
       await ensureDietForDate(userId, d, prof)
       await ensureWorkoutForDate(userId, d, prof)
@@ -337,28 +351,27 @@ export default function PlansPage(){
   }
 
   async function addIngredientsToGrocery(items: string[]){
-    const { data: { session } } = await supabase.auth.getSession()
-    const userId = session?.user?.id
-    if(!userId){ notify('error','Sign in first'); return }
+    const uid = await looseUserId()
+    if(!uid){ notify('error','Sign in first'); return }
     if(items.length===0){ notify('error','No structured ingredients found for this recipe'); return }
     const counts: Record<string, number> = {}
     for(const raw of items){ const name = normalizeName(raw); counts[name] = (counts[name]||0) + 1 }
     for(const [name, qty] of Object.entries(counts)){
       // try grocery_items first
-      let ex = await supabase.from('grocery_items').select('id, quantity').eq('user_id', userId).eq('name', name).maybeSingle()
+      let ex = await supabase.from('grocery_items').select('id, quantity').eq('user_id', uid).eq('name', name).maybeSingle()
       if(ex.data){
         const cur = (ex.data as any).quantity ?? 1
         await supabase.from('grocery_items').update({ quantity: cur + qty }).eq('id', (ex.data as any).id)
       }else{
-        const ins = await supabase.from('grocery_items').insert({ user_id: userId, name, done:false, quantity: qty })
+        const ins = await supabase.from('grocery_items').insert({ user_id: uid, name, done:false, quantity: qty })
         if(ins.error){
           // fallback to shopping_items if your schema uses that table
-          let ex2 = await supabase.from('shopping_items').select('id, quantity').eq('user_id', userId).eq('name', name).maybeSingle()
+          let ex2 = await supabase.from('shopping_items').select('id, quantity').eq('user_id', uid).eq('name', name).maybeSingle()
           if(ex2.data){
             const cur = (ex2.data as any).quantity ?? 1
             await supabase.from('shopping_items').update({ quantity: cur + qty }).eq('id', (ex2.data as any).id)
           }else{
-            await supabase.from('shopping_items').insert({ user_id: userId, name, done:false, quantity: qty })
+            await supabase.from('shopping_items').insert({ user_id: uid, name, done:false, quantity: qty })
           }
         }
       }
@@ -369,14 +382,14 @@ export default function PlansPage(){
   async function loadReplacements(meal: Meal){
     setReplacingId(meal.id)
     setAltOptions([])
-    const p = (profile || {}) as Profile
+    const p = (profile || {}) as any
     const tag = mealTagFor(meal.meal_type)
     const current = normalizeName(meal.recipe_name||'')
 
     async function querySet(applyDiet:boolean, applyTag:boolean){
       let q:any = supabase.from('recipes').select('name, dietary_pattern, allergens, cuisine, tags').limit(100)
       if(applyTag){ q = q.ilike('tags', `%${tag}%`) }
-      if(applyDiet && p.dietary_pattern){ q = q.eq('dietary_pattern', p.dietary_pattern) }
+      if(applyDiet && p?.dietary_pattern){ q = q.eq('dietary_pattern', p.dietary_pattern) }
       const { data } = await q
       return (data as Recipe[]) || []
     }
@@ -397,9 +410,8 @@ export default function PlansPage(){
   async function replaceMeal(mealId: string, name: string){
     await supabase.from('meals').update({ recipe_name: name }).eq('id', mealId)
     setReplacingId(null); setAltOptions([])
-    const { data: { session } } = await supabase.auth.getSession()
-    const userId = session?.user?.id
-    if(userId) await loadAll(userId)
+    const uid = await looseUserId()
+    if(uid) await loadAll(uid)
   }
 
   // -------- UI actions --------
@@ -413,25 +425,17 @@ export default function PlansPage(){
     </div>
   )
 
-  if (needLogin) {
-    return (
-      <div className="container" style={{display:'grid', gap:12}}>
-        <h1 className="text-2xl font-semibold">Plans</h1>
-        <div className="card">
-          <div className="font-medium mb-2">Please sign in</div>
-          <div className="muted">Your session isn’t available yet. If you just signed in, give it a second or use the menu to sign in again.</div>
-          <button className="button-outline mt-3" onClick={async()=>{
-            const { data: { session } } = await supabase.auth.getSession()
-            if(session?.user){ setNeedLogin(false); await boot(session.user.id) }
-          }}>Retry</button>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="container" style={{display:'grid', gap:16}}>
       <h1 className="text-2xl font-semibold">Plans</h1>
+
+      {needsAuth && (
+        <div className="card">
+          <div className="font-medium">You look signed out</div>
+          <div className="muted">Open the menu → Sign in, then come back here. Or press Retry.</div>
+          <button className="button-outline mt-2" onClick={boot}>Retry</button>
+        </div>
+      )}
 
       <div className="flex items-center gap-2 border-b pb-2">
         {tabBtn('Diet plan', mainTab==='diet', ()=>setMainTab('diet'))}
@@ -442,29 +446,26 @@ export default function PlansPage(){
       <div className="flex gap-2">
         <button className="button-outline" onClick={async ()=>{
           setBusy(true)
-          const { data: { session } } = await supabase.auth.getSession()
-          const userId = session?.user?.id
-          if(!userId || !profile){ setBusy(false); return }
-          await ensureDietForDate(userId, todayStr, profile)
-          await loadAll(userId); setBusy(false); notify('success','Diet generated for today')
+          const uid = await looseUserId()
+          if(!uid || !profile){ setBusy(false); return }
+          await ensureDietForDate(uid, todayStr, profile)
+          await loadAll(uid); setBusy(false); notify('success','Diet generated for today')
         }}>Generate today’s diet</button>
 
         <button className="button-outline" onClick={async ()=>{
           setBusy(true)
-          const { data: { session } } = await supabase.auth.getSession()
-          const userId = session?.user?.id
-          if(!userId || !profile){ setBusy(false); return }
-          await ensureWorkoutForDate(userId, todayStr, profile)
-          await loadAll(userId); setBusy(false); notify('success','Workout generated for today')
+          const uid = await looseUserId()
+          if(!uid || !profile){ setBusy(false); return }
+          await ensureWorkoutForDate(uid, todayStr, profile)
+          await loadAll(uid); setBusy(false); notify('success','Workout generated for today')
         }}>Generate today’s workout</button>
 
         <button className="button-outline" onClick={async ()=>{
           setBusy(true)
-          const { data: { session } } = await supabase.auth.getSession()
-          const userId = session?.user?.id
-          if(!userId || !profile){ setBusy(false); return }
-          await ensureWeek(userId, profile)
-          await loadAll(userId); setBusy(false); notify('success','Generated week plans')
+          const uid = await looseUserId()
+          if(!uid || !profile){ setBusy(false); return }
+          await ensureWeek(uid, profile)
+          await loadAll(uid); setBusy(false); notify('success','Generated week plans')
         }}>Generate this week</button>
       </div>
 
