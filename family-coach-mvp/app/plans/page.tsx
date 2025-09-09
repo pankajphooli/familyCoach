@@ -50,19 +50,19 @@ const MEAL_TIME: Record<string,string> = {
 function ymdLocal(d: Date){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}` }
 function mondayOfWeek(d: Date){
   const dd = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-  const day = dd.getDay() || 7
+  const day = dd.getDay() || 7 // Mon=1..Sun=7
   if(day>1){ dd.setDate(dd.getDate()-(day-1)) }
   return dd
 }
-function rangeMonToSun(monday: Date){
+function datesMonToSun(monday: Date){
   const arr: Date[] = []
   for(let i=0;i<7;i++){ const d = new Date(monday); d.setDate(monday.getDate()+i); arr.push(d) }
   return arr
 }
 function normalizeName(s:string){ return (s||'').trim().toLowerCase() }
 function recipeLink(name?: string | null){ if(!name) return '#'; const q = encodeURIComponent(`${name} recipe`); return `https://www.google.com/search?q=${q}` }
-function mealTagFor(meal: Meal){
-  const t = (meal.meal_type||'').toLowerCase()
+function mealTagFor(mealType: string){
+  const t = (mealType||'').toLowerCase()
   if(t.includes('break')) return 'Breakfast'
   if(t.includes('lunch')) return 'Lunch'
   return 'Dinner'
@@ -70,6 +70,7 @@ function mealTagFor(meal: Meal){
 function pickFrom<T>(arr:T[], index:number, fallback:T): T{ return arr.length ? (arr[index % arr.length] || arr[0]) : fallback }
 
 export default function PlansPage(){
+  // Inline supabase client
   const supabase = useMemo(()=>{
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -90,12 +91,13 @@ export default function PlansPage(){
   const [replacingId, setReplacingId] = useState<string|null>(null)
   const [altOptions, setAltOptions] = useState<string[]>([])
   const [profile, setProfile] = useState<Profile|null>(null)
+  const [needLogin, setNeedLogin] = useState(false)
 
   const todayStr = useMemo(()=> ymdLocal(new Date()), [])
   const monday = useMemo(()=> mondayOfWeek(new Date()), [])
-  const weekDates = useMemo(()=> rangeMonToSun(monday).map(ymdLocal), [monday])
+  const weekDates = useMemo(()=> datesMonToSun(monday).map(ymdLocal), [monday])
 
-  function notify(kind:'error'|'success', msg:string){
+  function notify(kind:'error'|'success'|'info', msg:string){
     if(typeof window !== 'undefined' && (window as any).toast){
       (window as any).toast(kind, msg)
     } else {
@@ -103,44 +105,31 @@ export default function PlansPage(){
     }
   }
 
-  useEffect(()=>{
-    try{
-      const key = `plans_cache_${ymdLocal(monday)}`
-      const raw = localStorage.getItem(key)
-      if(raw){
-        const parsed = JSON.parse(raw)
-        setWeekMeals(parsed.weekMeals||{})
-        setWeekBlocks(parsed.weekBlocks||{})
-        setTodayMeals(parsed.todayMeals||[])
-        setTodayBlocks(parsed.todayBlocks||[])
-      }
-    }catch{}
-  }, [monday])
-
   useEffect(()=>{ (async()=>{
     setBusy(true)
     try{
       const { data: { user } } = await supabase.auth.getUser()
-      if(!user){ return }
+      if(!user){ setNeedLogin(true); return }
+
       const profSel = 'dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
       const profRes = await supabase.from('profiles').select(profSel).eq('id', user.id).maybeSingle()
       setProfile((profRes.data || null) as Profile)
 
-      await ensureWeekIfNeeded(user.id, (profRes.data || {}) as Profile)
+      // Always ensure (no localStorage gate) – if records exist nothing will be inserted
+      await ensureWeek(user.id, (profRes.data || {}) as Profile)
       await loadAll(user.id)
-
-      try{
-        const key = `plans_cache_${ymdLocal(monday)}`
-        localStorage.setItem(key, JSON.stringify({ weekMeals, weekBlocks, todayMeals, todayBlocks }))
-      }catch{}
+    } catch (e){
+      console.warn('Init error', e)
     } finally { setBusy(false) }
   })() }, [])
 
+  // -------- Constraints --------
   function isRecipeAllowed(rec: Recipe, prof: Profile){
     const patt = normalizeName(prof.dietary_pattern||'')
     const rp = normalizeName(rec.dietary_pattern||'')
     if(patt){
       if(rp && !rp.includes(patt) && !(patt==='non_veg_chicken_only' && (rp.includes('non_veg') || rp.includes('omnivore')))){
+        // allow broader non_veg for chicken-only, then filter meats by name below
       }
     }
     const allergies = (prof.allergies||[]).map(normalizeName)
@@ -170,7 +159,7 @@ export default function PlansPage(){
     return true
   }
 
-  async function candidatesFor(tag:string, prof:Profile, limit=50): Promise<Recipe[]>{
+  async function recipesForTag(tag:string, prof:Profile, limit=50): Promise<Recipe[]>{
     let q:any = supabase.from('recipes').select('name, dietary_pattern, allergens, tags, ingredients, cuisine').limit(limit)
     q = q.ilike('tags', `%${tag}%`)
     if(prof.dietary_pattern){ q = q.eq('dietary_pattern', prof.dietary_pattern) }
@@ -182,9 +171,9 @@ export default function PlansPage(){
   async function defaultsForMeals(dayIndex:number, prof: Profile){
     try{
       const [b, l, d] = await Promise.all([
-        candidatesFor('Breakfast', prof),
-        candidatesFor('Lunch', prof),
-        candidatesFor('Dinner', prof)
+        recipesForTag('Breakfast', prof),
+        recipesForTag('Lunch', prof),
+        recipesForTag('Dinner', prof)
       ])
       const bName = pickFrom<Recipe>(b, dayIndex, {name:'Oat Bowl'} as Recipe).name
       const lName = pickFrom<Recipe>(l, dayIndex, {name:'Chicken Wrap'} as Recipe).name
@@ -239,66 +228,45 @@ export default function PlansPage(){
     ]
   }
 
-  async function ensureWeekIfNeeded(userId: string, prof: Profile){
-    try{
-      const mondayStr = ymdLocal(monday)
-      const flagKey = `plans_ensured_${mondayStr}`
-      const flag = typeof window !== 'undefined' ? localStorage.getItem(flagKey) : null
-      if(flag === '1'){ return }
-
-      const [pds, wds] = await Promise.all([
-        supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', weekDates),
-        supabase.from('workout_days').select('id,date').eq('user_id', userId).in('date', weekDates),
-      ])
-      const havePd = new Set(((pds.data||[]) as PlanDay[]).map((r)=>r.date))
-      const haveWd = new Set(((wds.data||[]) as WorkoutDay[]).map((r)=>r.date))
-
-      const missingPd = weekDates.filter(d=>!havePd.has(d)).map(date=>({ user_id: userId, date }))
-      const missingWd = weekDates.filter(d=>!haveWd.has(d)).map(date=>({ user_id: userId, date }))
-      await Promise.all([
-        missingPd.length ? supabase.from('plan_days').insert(missingPd) : Promise.resolve(),
-        missingWd.length ? supabase.from('workout_days').insert(missingWd) : Promise.resolve(),
-      ])
-
-      const [pds2, wds2] = await Promise.all([
-        supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', weekDates),
-        supabase.from('workout_days').select('id,date').eq('user_id', userId).in('date', weekDates),
-      ])
-      const pdByDate: Record<string, string> = {}; ((pds2.data||[]) as PlanDay[]).forEach((r)=> pdByDate[r.date]=r.id)
-      const wdByDate: Record<string, string> = {}; ((wds2.data||[]) as WorkoutDay[]).forEach((r)=> wdByDate[r.date]=r.id)
-
-      const [mealsAll, blocksAll] = await Promise.all([
-        supabase.from('meals').select('id,plan_day_id').in('plan_day_id', Object.values(pdByDate)),
-        supabase.from('workout_blocks').select('id,workout_day_id').in('workout_day_id', Object.values(wdByDate)),
-      ])
-      const pdWithMeals = new Set(((mealsAll.data||[]) as {id:string;plan_day_id:string}[]).map((m)=>m.plan_day_id))
-      const wdWithBlocks = new Set(((blocksAll.data||[]) as {id:string;workout_day_id:string}[]).map((b)=>b.workout_day_id))
-
-      const mealsToInsert:any[] = []
-      const blocksToInsert:any[] = []
-      for(let i=0;i<weekDates.length;i++){
-        const date = weekDates[i]
-        const pdId = pdByDate[date]; const wdId = wdByDate[date]
-        if(pdId && !pdWithMeals.has(pdId)){
-          const defs = await defaultsForMeals(i, prof)
-          defs.forEach(m => mealsToInsert.push({ ...m, plan_day_id: pdId }))
-        }
-        if(wdId && !wdWithBlocks.has(wdId)){
-          const defsB = await pickWorkoutFor(i, prof)
-          defsB.forEach(b => blocksToInsert.push({ ...b, workout_day_id: wdId }))
-        }
-      }
-      await Promise.all([
-        mealsToInsert.length ? supabase.from('meals').insert(mealsToInsert) : Promise.resolve(),
-        blocksToInsert.length ? supabase.from('workout_blocks').insert(blocksToInsert) : Promise.resolve(),
-      ])
-
-      if (typeof window !== 'undefined') localStorage.setItem(flagKey, '1')
-    }catch(e){
-      console.warn('ensureWeekIfNeeded error', e)
+  // -------- Ensure helpers --------
+  async function ensureDietForDate(userId:string, dateStr:string, prof:Profile){
+    let pd = await supabase.from('plan_days').select('id').eq('user_id', userId).eq('date', dateStr).maybeSingle()
+    let pdId = (pd.data as any)?.id
+    if(!pdId){
+      const ins = await supabase.from('plan_days').insert({ user_id:userId, date: dateStr }).select('id').single()
+      if(ins.error){ console.warn('ensure plan_day', ins.error); return }
+      pdId = (ins.data as any).id
+    }
+    const m = await supabase.from('meals').select('id').eq('plan_day_id', pdId)
+    if((m.data||[]).length===0){
+      const defs = await defaultsForMeals(new Date(dateStr).getDay(), prof)
+      await supabase.from('meals').insert(defs.map(x=>({...x, plan_day_id: pdId})))
     }
   }
 
+  async function ensureWorkoutForDate(userId:string, dateStr:string, prof:Profile){
+    let wd = await supabase.from('workout_days').select('id').eq('user_id', userId).eq('date', dateStr).maybeSingle()
+    let wdId = (wd.data as any)?.id
+    if(!wdId){
+      const ins = await supabase.from('workout_days').insert({ user_id:userId, date: dateStr }).select('id').single()
+      if(ins.error){ console.warn('ensure workout_day', ins.error); return }
+      wdId = (ins.data as any).id
+    }
+    const b = await supabase.from('workout_blocks').select('id').eq('workout_day_id', wdId)
+    if((b.data||[]).length===0){
+      const defs = await pickWorkoutFor(new Date(dateStr).getDay(), prof)
+      await supabase.from('workout_blocks').insert(defs.map(x=>({...x, workout_day_id: wdId})))
+    }
+  }
+
+  async function ensureWeek(userId: string, prof: Profile){
+    for(const d of weekDates){
+      await ensureDietForDate(userId, d, prof)
+      await ensureWorkoutForDate(userId, d, prof)
+    }
+  }
+
+  // -------- Load --------
   async function loadAll(userId: string){
     const [pdRes, wdRes] = await Promise.all([
       supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', weekDates),
@@ -328,76 +296,7 @@ export default function PlansPage(){
     setTodayBlocks(byDateBlocks[todayStr] || [])
   }
 
-  async function openIngredients(meal: Meal){
-    const recipe = meal.recipe_name || ''
-    setIngredientsFor(recipe)
-    setIngredients([])
-    const { data: rec } = await supabase.from('recipes').select('*').ilike('name', recipe).maybeSingle()
-    const list: string[] = (rec as Recipe | null)?.ingredients || []
-    setIngredients(list || [])
-  }
-  async function addIngredientsToGrocery(items: string[]){
-    const { data: { user } } = await supabase.auth.getUser()
-    if(!user){ notify('error','Sign in first'); return }
-    if(items.length===0){ notify('error','No structured ingredients found for this recipe'); return }
-    const counts: Record<string, number> = {}
-    for(const raw of items){ const name = normalizeName(raw); counts[name] = (counts[name]||0) + 1 }
-    for(const [name, qty] of Object.entries(counts)){
-      let ex = await supabase.from('grocery_items').select('id, quantity').eq('user_id', user.id).eq('name', name).maybeSingle()
-      if(ex.data){
-        const cur = (ex.data as any).quantity ?? 1
-        await supabase.from('grocery_items').update({ quantity: cur + qty }).eq('id', (ex.data as any).id)
-      }else{
-        const ins = await supabase.from('grocery_items').insert({ user_id: user.id, name, done:false, quantity: qty })
-        if(ins.error){
-          let ex2 = await supabase.from('shopping_items').select('id, quantity').eq('user_id', user.id).eq('name', name).maybeSingle()
-          if(ex2.data){
-            const cur = (ex2.data as any).quantity ?? 1
-            await supabase.from('shopping_items').update({ quantity: cur + qty }).eq('id', (ex2.data as any).id)
-          }else{
-            await supabase.from('shopping_items').insert({ user_id: user.id, name, done:false, quantity: qty })
-          }
-        }
-      }
-    }
-    notify('success','Ingredients added (quantities updated).')
-  }
-
-  async function loadReplacements(meal: Meal){
-    setReplacingId(meal.id)
-    setAltOptions([])
-    const p = (profile || {}) as Profile
-    const tag = mealTagFor(meal)
-    const current = normalizeName(meal.recipe_name||'')
-
-    async function querySet(applyDiet:boolean, applyTag:boolean){
-      let q:any = supabase.from('recipes').select('name, dietary_pattern, allergens, cuisine, tags').limit(100)
-      if(applyTag){ q = q.ilike('tags', `%${tag}%`) }
-      if(applyDiet && p.dietary_pattern){ q = q.eq('dietary_pattern', p.dietary_pattern) }
-      const { data } = await q
-      return (data as Recipe[]) || []
-    }
-
-    let candidates: Recipe[] = []
-    const orders:[boolean,boolean][] = [[true,true],[false,true],[true,false],[false,false]]
-    for(const [applyDiet, applyTag] of orders){
-      const set = await querySet(applyDiet, applyTag)
-      const filtered = set.filter((r:Recipe)=> isRecipeAllowed(r, p) && normalizeName(r.name) !== current)
-      candidates = candidates.concat(filtered)
-      const seen = new Set<string>()
-      candidates = candidates.filter(r => { const k = normalizeName(r.name); if(seen.has(k)) return false; seen.add(k); return true })
-      if(candidates.length >= 12) break
-    }
-
-    setAltOptions(candidates.slice(0,12).map(r=>r.name))
-  }
-  async function replaceMeal(mealId: string, name: string){
-    await supabase.from('meals').update({ recipe_name: name }).eq('id', mealId)
-    setReplacingId(null); setAltOptions([])
-    const { data: { user } } = await supabase.auth.getUser()
-    if(user) await loadAll(user.id)
-  }
-
+  // -------- UI actions --------
   const tabBtn = (label:string, active:boolean, onClick: ()=>void) => (
     <button className="button" onClick={onClick} style={active ? { } : { opacity: .6 }}>{label}</button>
   )
@@ -408,6 +307,10 @@ export default function PlansPage(){
     </div>
   )
 
+  if (needLogin) {
+    return <div className="muted">Please sign in</div>
+  }
+
   return (
     <div className="container" style={{display:'grid', gap:16}}>
       <h1 className="text-2xl font-semibold">Plans</h1>
@@ -417,6 +320,34 @@ export default function PlansPage(){
         {tabBtn('Exercise plan', mainTab==='workout', ()=>setMainTab('workout'))}
       </div>
 
+      {/* Manual generate buttons (safety fallback) */}
+      <div className="flex gap-2">
+        <button className="button-outline" onClick={async ()=>{
+          setBusy(true)
+          const { data: { user } } = await supabase.auth.getUser()
+          if(!user || !profile){ setBusy(false); return }
+          await ensureDietForDate(user.id, todayStr, profile)
+          await loadAll(user.id); setBusy(false); notify('success','Diet generated for today')
+        }}>Generate today’s diet</button>
+
+        <button className="button-outline" onClick={async ()=>{
+          setBusy(true)
+          const { data: { user } } = await supabase.auth.getUser()
+          if(!user || !profile){ setBusy(false); return }
+          await ensureWorkoutForDate(user.id, todayStr, profile)
+          await loadAll(user.id); setBusy(false); notify('success','Workout generated for today')
+        }}>Generate today’s workout</button>
+
+        <button className="button-outline" onClick={async ()=>{
+          setBusy(true)
+          const { data: { user } } = await supabase.auth.getUser()
+          if(!user || !profile){ setBusy(false); return }
+          await ensureWeek(user.id, profile)
+          await loadAll(user.id); setBusy(false); notify('success','Generated week plans')
+        }}>Generate this week</button>
+      </div>
+
+      {/* DIET */}
       {mainTab==='diet' && (
         <section className="card">
           <div className="flex items-center justify-between">
@@ -434,10 +365,6 @@ export default function PlansPage(){
                     <a className="link" href={recipeLink(m.recipe_name)} target="_blank" rel="noreferrer">Recipe ↗</a>
                   </div>
                   <div>{m.recipe_name || 'TBD'}</div>
-                  <div className="flex gap-2">
-                    <button className="button-outline" onClick={()=>openIngredients(m)}>Add to grocery</button>
-                    <button className="button-outline" onClick={()=>loadReplacements(m)}>Replace</button>
-                  </div>
                 </div>
               ))}
             </div>
@@ -453,8 +380,6 @@ export default function PlansPage(){
                         <div>• {m.meal_type || 'Meal'} — <span className="opacity-70">{MEAL_TIME[m.meal_type] || '—'}</span> · <span>{m.recipe_name || 'TBD'}</span></div>
                         <div className="flex gap-2">
                           <a className="link" href={recipeLink(m.recipe_name)} target="_blank" rel="noreferrer">Recipe ↗</a>
-                          <button className="button-outline" onClick={()=>openIngredients(m)}>Add to grocery</button>
-                          <button className="button-outline" onClick={()=>loadReplacements(m)}>Replace</button>
                         </div>
                       </li>
                     ))}
@@ -466,6 +391,7 @@ export default function PlansPage(){
         </section>
       )}
 
+      {/* WORKOUT */}
       {mainTab==='workout' && (
         <section className="card">
           <div className="flex items-center justify-between">
@@ -539,7 +465,7 @@ export default function PlansPage(){
         </div>
       )}
 
-      {busy && <div className="muted">Refreshing…</div>}
+      {busy && <div className="muted">Working…</div>}
     </div>
   )
 }
