@@ -1,0 +1,27 @@
+/* app/styles/mobile.css */
+:root{--bg:#0b0b0c;--card:#141416;--text:#ffffff;--muted:#9aa3b2;--surface:#0f1012;--accent:#111827;--accentText:#ffffff;--chipBg:#1f2937;--chipActiveBg:#000;--chipActiveText:#fff;--brand:#111827;--ring:rgba(255,255,255,.12)}
+.light{--bg:#fafafa;--card:#fff;--text:#0b1220;--muted:#6b7280;--surface:#f4f5f7;--accent:#f1f5f9;--accentText:#0b1220;--chipBg:#e5e7eb;--chipActiveBg:#0b1220;--chipActiveText:#fff;--brand:#0b1220;--ring:rgba(2,6,23,.12)}
+.mobile-shell{background:var(--bg);color:var(--text);min-height:100dvh}
+.mobile-content{padding:64px 16px 72px;max-width:640px;margin-inline:auto}
+.mobile-header{position:fixed;inset:0 0 auto 0;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:var(--bg);border-bottom:1px solid var(--ring);z-index:40}
+.mobile-header .title{font-size:17px;font-weight:600}
+.bottom-nav{position:fixed;inset:auto 0 0 0;height:56px;display:grid;grid-template-columns:repeat(5,1fr);align-items:center;background:var(--bg);border-top:1px solid var(--ring);z-index:40}
+.bottom-nav a{display:grid;place-items:center;gap:2px;padding:6px 0;text-decoration:none;color:var(--muted);font-size:11px}
+.bottom-nav a.active{color:var(--text)}
+.icon{width:22px;height:22px;display:inline-block}
+.card{background:var(--card);border:1px solid var(--ring);border-radius:14px;padding:14px;box-shadow:0 1px 0 rgba(0,0,0,.02)}
+.stat-card{display:grid;gap:6px}
+.stat-value{font-size:28px;font-weight:700}
+.stat-trend{color:var(--muted);font-size:12px}
+.tabbar{display:flex;gap:8px}
+.chip{border:1px solid var(--ring);border-radius:999px;background:var(--chipBg);color:var(--accentText);padding:6px 12px;font-size:13px;font-weight:600}
+.chip.active{background:var(--chipActiveBg);color:var(--chipActiveText)}
+.chip.transparent{background:transparent}
+.row{display:flex;align-items:center;justify-content:space-between}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.muted{color:var(--muted)}
+.link{color:inherit;text-decoration:underline}
+.button{background:var(--brand);color:#fff;border:1px solid var(--ring);padding:8px 12px;border-radius:10px;font-weight:600}
+.button-outline{background:transparent;color:var(--text);border:1px solid var(--ring);padding:8px 12px;border-radius:10px;font-weight:600}
+.modal{position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.5);z-index:50}
+.modal-card{background:var(--card);border:1px solid var(--ring);border-radius:14px;padding:16px;width:min(560px,92vw)}
