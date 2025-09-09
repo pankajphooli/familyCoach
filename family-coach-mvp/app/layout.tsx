@@ -12,9 +12,8 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="mobile-shell light">
-        <MobileHeader title="HouseholdHQ" />
-        <main className="mobile-content">{children}</main>
+      <body>
+        <main className="min-h-screen pb-24">{children}</main>
         <BottomNav />
       </body>
     </html>
