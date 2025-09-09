@@ -1,4 +1,4 @@
-import './globals.css'
+import '../styles/globals.css'
 import './styles/mobile.css'
 import type { Metadata } from 'next'
 import MobileHeader from './components/ui/MobileHeader'
