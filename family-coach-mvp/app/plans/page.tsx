@@ -22,9 +22,8 @@ const MEAL_TIME: Record<string,string> = {
 function ymdLocal(d: Date){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}` }
 function mondayOfWeek(d: Date){ const dd=new Date(d.getFullYear(), d.getMonth(), d.getDate()); const w=dd.getDay()||7; if(w>1) dd.setDate(dd.getDate()-(w-1)); return dd }
 function datesMonToSun(mon: Date){ return Array.from({length:7},(_,i)=>{ const d=new Date(mon); d.setDate(mon.getDate()+i); return d }) }
-function projectRef(url:string){ try{ return new URL(url).hostname.split('.')[0] }catch{ return '' } }
-
 function recipeLink(name?:string|null){ if(!name) return '#'; const q = encodeURIComponent(`${name} recipe`); return `https://www.google.com/search?q=${q}` }
+function projectRef(url:string){ try{ return new URL(url).hostname.split('.')[0] }catch{ return '' } }
 
 export default function PlansPage(){
   const supabase = useMemo(()=>createClient(
@@ -47,15 +46,13 @@ export default function PlansPage(){
   const [needsAuth, setNeedsAuth] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  // --- robust auth (falls back to localStorage key) ---
   async function getUserId(): Promise<string|null>{
-    const { data: { session } } = await supabase.auth.getSession()
-    if(session?.user?.id) return session.user.id
-    try{ const { data: { user } } = await supabase.auth.getUser(); if(user?.id) return user.id }catch{}
+    const s = await supabase.auth.getSession()
+    if(s.data?.session?.user?.id) return s.data.session.user.id
+    try{ const u = await supabase.auth.getUser(); if(u.data?.user?.id) return u.data.user.id }catch{}
     try{
       const ref = projectRef(process.env.NEXT_PUBLIC_SUPABASE_URL || '')
-      const key = `sb-${ref}-auth-token`
-      const raw = typeof window!=='undefined' ? window.localStorage.getItem(key) : null
+      const raw = typeof window!=='undefined' ? window.localStorage.getItem(`sb-${ref}-auth-token`) : null
       if(raw){ const parsed = JSON.parse(raw); return parsed?.currentSession?.user?.id || parsed?.user?.id || null }
     }catch{}
     return null
@@ -63,31 +60,34 @@ export default function PlansPage(){
 
   async function ensureWeek(uid:string){
     for(const d of weekDates){
-      // plan day
       const pd = await supabase.from('plan_days').select('id').eq('user_id', uid).eq('date', d).maybeSingle()
       let pdId = (pd.data as any)?.id
       if(!pdId){
         const ins = await supabase.from('plan_days').insert({ user_id: uid, date: d }).select('id').single()
+        if(ins.error){ console.warn('plan_day insert', ins.error); continue }
         pdId = (ins.data as any).id
-        await supabase.from('meals').insert([
+        const insMeals = await supabase.from('meals').insert([
           { plan_day_id: pdId, meal_type:'breakfast', recipe_name:'Oat Bowl' },
           { plan_day_id: pdId, meal_type:'lunch',     recipe_name:'Chicken Wrap' },
           { plan_day_id: pdId, meal_type:'dinner',    recipe_name:'Veg Stir Fry' },
         ])
+        if(insMeals.error){ console.warn('meals insert', insMeals.error) }
       }
-      // workout day
+
       const wd = await supabase.from('workout_days').select('id').eq('user_id', uid).eq('date', d).maybeSingle()
       let wdId = (wd.data as any)?.id
       if(!wdId){
         const ins = await supabase.from('workout_days').insert({ user_id: uid, date: d }).select('id').single()
+        if(ins.error){ console.warn('workout_day insert', ins.error); continue }
         wdId = (ins.data as any).id
-        await supabase.from('workout_blocks').insert([
+        const insBlocks = await supabase.from('workout_blocks').insert([
           { workout_day_id: wdId, kind:'warmup',  title:'Warm-up',  details:'Walk 5–8 min' },
           { workout_day_id: wdId, kind:'circuit', title:'Glute bridge', details:'3×12' },
           { workout_day_id: wdId, kind:'circuit', title:'Row (band)', details:'3×12' },
           { workout_day_id: wdId, kind:'circuit', title:'Plank', details:'3×30s' },
           { workout_day_id: wdId, kind:'cooldown', title:'Cooldown', details:'Stretch 5 min' },
         ])
+        if(insBlocks.error){ console.warn('blocks insert', insBlocks.error) }
       }
     }
   }
@@ -115,7 +115,7 @@ export default function PlansPage(){
 
   useEffect(()=>{
     let unsub: any
-    (async()=>{
+    ;(async()=>{
       setBusy(true)
       const uid = await getUserId()
       if(!uid){ setNeedsAuth(true); setBusy(false); return }
@@ -130,12 +130,11 @@ export default function PlansPage(){
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ---- UI helpers ----
   function Seg({left, right, value, onChange}:{left:string; right:string; value:'left'|'right'; onChange:(v:'left'|'right')=>void}){
     return (
-      <div className="rounded-full border p-1 bg-muted/30" style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:2}}>
-        <button className="rounded-full px-4 py-2 text-sm" onClick={()=>onChange('left')} style={{background:value==='left'?'var(--foreground, #111)':'transparent', color:value==='left'?'#fff':'inherit'}}> {left} </button>
-        <button className="rounded-full px-4 py-2 text-sm" onClick={()=>onChange('right')} style={{background:value==='right'?'var(--foreground, #111)':'transparent', color:value==='right'?'#fff':'inherit'}}> {right} </button>
+      <div className="rounded-full border p-1 bg-neutral-100" style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:2}}>
+        <button className="rounded-full px-4 py-2 text-sm" onClick={()=>onChange('left')} style={{background:value==='left'?'#111':'transparent', color:value==='left'?'#fff':'inherit'}}> {left} </button>
+        <button className="rounded-full px-4 py-2 text-sm" onClick={()=>onChange('right')} style={{background:value==='right'?'#111':'transparent', color:value==='right'?'#fff':'inherit'}}> {right} </button>
       </div>
     )
   }
@@ -145,7 +144,7 @@ export default function PlansPage(){
         <button className="text-base" style={{opacity:value==='today'?1:.6}} onClick={()=>onChange('today')}>Today</button>
         <button className="text-base" style={{opacity:value==='week'?1:.6, position:'relative'}} onClick={()=>onChange('week')}>
           Week
-          {value==='week' && <span style={{position:'absolute', left:0, right:0, bottom:-6, height:2, background:'currentColor', opacity:.9}}/>}
+          {value==='week' && <span style={{position:'absolute', left:0, right:0, bottom:-6, height:2, background:'#111', opacity:.9}}/>}
         </button>
       </div>
     )
@@ -157,7 +156,7 @@ export default function PlansPage(){
           const active = value===d
           return (
             <button key={d} onClick={()=>onChange(d)} className="px-4 py-2 rounded-full border"
-              style={{whiteSpace:'nowrap', background: active?'var(--foreground, #111)':'transparent', color: active?'#fff':'inherit'}}>
+              style={{whiteSpace:'nowrap', background: active?'#111':'#fff', color: active?'#fff':'#111'}}>
               {d}
             </button>
           )
@@ -170,7 +169,7 @@ export default function PlansPage(){
   const blocksToday = byDateBlocks[selectedDate] || []
 
   return (
-    <div className="container" style={{paddingBottom:'calc(84px + env(safe-area-inset-bottom))', display:'grid', gap:16}}>
+    <div className="container" style={{paddingBottom:'calc(84px + env(safe-area-inset-bottom))', display:'grid', gap:16, background:'#fff'}}>
       <h1 className="text-2xl font-semibold">Plans</h1>
 
       {needsAuth && <div className="card">Please sign in from the Profile tab.</div>}

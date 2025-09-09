@@ -9,10 +9,10 @@ type IconName = 'home'|'plans'|'calendar'|'grocery'|'profile'
 
 function Icon({name, active=false}:{name:IconName; active?:boolean}){
   const svgProps: SVGProps<SVGSVGElement> = {
-    width: 24, height: 24, viewBox: '0 0 24 24',
+    width: 26, height: 26, viewBox: '0 0 24 24',
     fill: 'none',
     stroke: 'currentColor',
-    strokeWidth: 1.8,
+    strokeWidth: 1.9,
     strokeLinecap: 'round',
     strokeLinejoin: 'round',
     style: { opacity: active ? 1 : 0.6 } as CSSProperties,
@@ -43,17 +43,16 @@ export default function BottomNav(){
 
   return (
     <nav
-      className="fixed left-0 right-0 bottom-0 border-t bg-background/85 backdrop-blur"
+      className="fixed left-0 right-0 bottom-0 border-t bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800"
       style={{ height: 64, paddingBottom: 'env(safe-area-inset-bottom)', zIndex: 60 }}
     >
       <ul style={{display:'grid', gridTemplateColumns:'repeat(5, 1fr)', height:'100%'}}>
         {items.map(it=>{
           const active = pathname === it.href || (it.href!=='/' && pathname.startsWith(it.href))
           return (
-            <li key={it.href} className="flex flex-col items-center justify-center">
-              <Link href={it.href} className="flex flex-col items-center justify-center gap-1" aria-label={it.label}>
+            <li key={it.href} className="flex items-center justify-center">
+              <Link href={it.href} className="flex items-center justify-center" aria-label={it.label}>
                 <Icon name={it.icon} active={active} />
-                <span className="text-xs" style={{opacity: active?1:0.72}}>{it.label}</span>
               </Link>
             </li>
           )
