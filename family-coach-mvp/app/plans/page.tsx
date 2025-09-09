@@ -166,7 +166,7 @@ export default function PlansPage(){
     const need: string[] = (ex.equipment||[]).map((x:any)=>normalizeName(String(x)))
     const contra: string[] = (ex.contraindications||[]).map((x:any)=>normalizeName(String(x)))
     const flags = [...(prof.injuries||[]), ...(prof.health_conditions||[])].map(normalizeName)
-    if(need.length && need.some(n => n!=='none' && !eqp.includes(n)) return false
+    if(need.length && need.some(n => n!=='none' && !eqp.includes(n))) return false
     if(flags.length && contra.some(c => flags.includes(c))) return false
     return true
   }
