@@ -1,6 +1,7 @@
 import '../styles/globals.css'
 import './styles/mobile.css'
 import './globals.css'
+import './globals-bottomnav-fix.css'
 import type { Metadata } from 'next'
 import MobileHeader from './components/ui/MobileHeader'
 import BottomNav from './components/ui/BottomNav'
