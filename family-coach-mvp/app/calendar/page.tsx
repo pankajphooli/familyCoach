@@ -323,7 +323,13 @@ export default function CalendarPage() {
         // attendees
         if (who.length) {
           await supabase.from(usedTable).update({ attendees: who } as any).eq('id', insertedId)
-          await supabase.from('event_attendees').insert(who.map((uid) => ({ event_id: insertedId!, user_id: uid }))).catch(() => {})
+          try {
+              await supabase
+              .from('event_attendees')
+              .insert(who.map((uid) => ({ event_id: insertedId!, user_id: uid })))
+          } catch (_) {
+            // ignore if the join table doesn't exist or RLS blocks it
+          }
         }
         return { id: insertedId, table: usedTable }
       }
