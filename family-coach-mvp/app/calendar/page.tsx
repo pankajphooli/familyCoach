@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createClient } from '../../lib/supabaseClient'
+import { createClient as createSupabase } from '@supabase/supabase-js'
 import './calendar-ui.css'
 
 type Member = { id: string; name: string }
