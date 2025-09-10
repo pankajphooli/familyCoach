@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '../../lib/supabaseClient'
-import './calendar-ui.css'
 
 type Member = { id: string; name: string }
 type CalEvent = {
@@ -12,115 +11,118 @@ type CalEvent = {
   date: string
   start_time?: string | null
   end_time?: string | null
-  attendees?: string[]           // user_ids / names / emails
-  _table?: string                // source table for edit/delete
+  attendees: string[]
+  table: string
 }
+
 type ViewMode = 'date' | 'upcoming'
 
 /* ---------- date helpers ---------- */
 const ymd = (d: Date) => {
-  const y = d.getFullYear(), m = `${d.getMonth()+1}`.padStart(2,'0'), dd = `${d.getDate()}`.padStart(2,'0')
-  return `${y}-${m}-${dd}`
+  const Y = d.getFullYear()
+  const M = String(d.getMonth() + 1).padStart(2, '0')
+  const D = String(d.getDate()).padStart(2, '0')
+  return `${Y}-${M}-${D}`
 }
-const addDays = (d: Date, n: number) => { const c = new Date(d); c.setDate(c.getDate()+n); return c }
-const daysSpan = (start: Date, n: number) => Array.from({length:n}, (_,i)=> ymd(addDays(start,i)))
-const addWeeks = (d: Date, n: number) => addDays(d, n*7)
-const addMonthsKeepDOM = (d: Date, n: number) => {
+const addDays = (d: Date, n: number) => {
   const nd = new Date(d)
-  const day = nd.getDate()
-  nd.setMonth(nd.getMonth() + n)
-  // If month overflowed (e.g., adding 1 month to Jan 31 → Mar 02), clamp to last day of target month
-  if (nd.getDate() < day) {
-    nd.setDate(0) // move to last day of previous month
-  }
+  nd.setDate(nd.getDate() + n)
   return nd
 }
-const chipLabel = (s: string) => {
-  const d = new Date(`${s}T00:00:00`); const w = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]
-  return `${w} ${String(d.getDate()).padStart(2,'0')}`
+const addWeeks = (d: Date, n: number) => addDays(d, n * 7)
+const addMonthsKeepDOM = (d: Date, n: number) => {
+  const nd = new Date(d)
+  const dom = nd.getDate()
+  nd.setMonth(nd.getMonth() + n)
+  if (nd.getDate() < dom) nd.setDate(0)
+  return nd
 }
-const monthYear = (s: string) => new Date(`${s}T00:00:00`)
-  .toLocaleString(undefined, { month: 'long', year: 'numeric' })
+const daysSpan = (start: Date, n: number) => Array.from({ length: n }, (_, i) => ymd(addDays(start, i)))
+const monthYear = (s: string) => {
+  const d = new Date(s + 'T00:00:00')
+  return d.toLocaleString(undefined, { month: 'long', year: 'numeric' })
+}
 const isMonthStart = (s: string) => s.slice(-2) === '01'
-const hhmm = (t?: string|null) => t ? t.split(':').slice(0,2).join(':') : ''
-const rangeFmt = (a?: string|null, b?: string|null) => {
-  const A = hhmm(a), B = hhmm(b); return (A||B) ? `${A} - ${B}` : ''
+const hhmm = (t?: string | null) => (t ? t.split(':').slice(0, 2).join(':') : '')
+const rangeFmt = (a?: string | null, b?: string | null) => {
+  const A = hhmm(a),
+    B = hhmm(b)
+  return A || B ? `${A} - ${B}` : ''
 }
-const toIso = (date: string, time?: string|null) => time ? `${date}T${time}:00` : `${date}T00:00:00`
+const toIso = (date: string, time?: string | null) => (time ? `${date}T${time}:00` : `${date}T00:00:00`)
 
-/* ---------- component ---------- */
-export default function CalendarPage(){
-  const supabase = useMemo(()=> createClient(), [])
-  const [loading, setLoading] = useState(true)
+/* ---------- candidate tables (tolerant across schemas) ---------- */
+const CANDIDATE_TABLES = ['events', 'calendar_events', 'family_events', 'household_events']
 
+export default function CalendarPage() {
+  const supabase = useMemo(() => createClient(), [])
+
+  // identity/family
   const [familyId, setFamilyId] = useState<string>('')
   const [members, setMembers] = useState<Member[]>([])
 
-  // Chip strip: Today + scrollable tomorrow→
+  // chips + selection
   const todayStr = ymd(new Date())
   const [chipDates] = useState<string[]>(daysSpan(addDays(new Date(), 1), 180))
   const [selDate, setSelDate] = useState<string>(todayStr)
   const [viewMode, setViewMode] = useState<ViewMode>('date')
 
-  // Month labels
+  // month label UX
   const [primaryMonth, setPrimaryMonth] = useState<string>(monthYear(todayStr))
-  const [secondaryMonth, setSecondaryMonth] = useState<{label:string; x:number}|null>(null)
+  const [secondaryMonth, setSecondaryMonth] = useState<{ label: string; x: number } | null>(null)
 
-  // Refs
+  // refs
   const chipsRef = useRef<HTMLDivElement>(null)
   const dateInputRef = useRef<HTMLInputElement>(null)
   const formTopRef = useRef<HTMLDivElement>(null)
 
-  // Events + table detection
-  const [eventsByDate, setEventsByDate] = useState<Record<string, CalEvent[]>>({})
+  // events + tables
   const [availableTables, setAvailableTables] = useState<string[]>([])
-  const [primaryEventTable, setPrimaryEventTable] = useState<string | null>(null)
+  const [primaryEventTable, setPrimaryEventTable] = useState<string>('events')
+  const [eventsByDate, setEventsByDate] = useState<Record<string, CalEvent[]>>({})
 
-  // Inline edit state
-  const [editEv, setEditEv] = useState<{
-    id: string, table: string, title: string, date: string,
-    start_time: string, end_time: string, who: string[]
-  } | null>(null)
-  const editRef = useRef<HTMLDivElement>(null)
-  const editTitleRef = useRef<HTMLInputElement>(null)
+  // add form
+  const [title, setTitle] = useState('')
+  const [desc, setDesc] = useState('')
+  const [date, setDate] = useState<string>(todayStr)
+  const [startTime, setStartTime] = useState<string>('')
+  const [endTime, setEndTime] = useState<string>('')
+  const [who, setWho] = useState<string[]>([])
 
-  function notify(kind:'success'|'error', msg:string){
-    if(typeof window !== 'undefined' && (window as any).toast){ (window as any).toast(kind, msg) }
-    else { kind==='error' ? console.warn(msg) : console.log(msg) }
+  // recurrence
+  const [repeat, setRepeat] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none')
+  const [interval, setInterval] = useState<number>(1)
+  const [occurrences, setOccurrences] = useState<number>(6)
+
+  function notify(kind: 'success' | 'error', msg: string) {
+    if (typeof window !== 'undefined' && (window as any).toast) (window as any).toast(kind, msg)
+    else (kind === 'error' ? console.warn : console.log)(msg)
   }
 
-  /* ---------- table detection ---------- */
-  const CANDIDATE_TABLES = ['events','calendar_events','family_events','calendar','family_calendar']
-  async function detectTables(): Promise<string[]>{
-    const ok: string[] = []
-    for(const t of CANDIDATE_TABLES){
-      const res = await supabase.from(t).select('*').limit(1)
-      if(!res.error) ok.push(t)
-    }
-    return ok
-  }
+  /* ---------- boot: family + members + tables + initial load ---------- */
+  useEffect(() => {
+    ;(async () => {
+      const { data: userRes } = await supabase.auth.getUser()
+      const user = userRes?.user
+      if (!user) return
 
-  /* ---------- boot ---------- */
-  useEffect(()=>{ (async()=>{
-    setLoading(true)
-    try{
-      const { data: { user } } = await supabase.auth.getUser()
-      if(!user){ setLoading(false); return }
-
-      // family + members (names)
-      const prof = await supabase.from('profiles').select('id, full_name, family_id').eq('id', user.id).maybeSingle()
-      const fid = (prof.data?.family_id || '') as string
+      // family id
+      const prof = await supabase.from('profiles').select('family_id, full_name').eq('id', user.id).maybeSingle()
+      const fid = (prof.data?.family_id as string) || ''
       setFamilyId(fid)
 
-      const fm = await supabase.from('family_members').select('user_id').eq('family_id', fid)
-      const uids = ((fm.data||[]) as any[]).map(r=>r.user_id)
-      const names: Record<string,string> = {}
-      if(uids.length){
-        const prs = await supabase.from('profiles').select('id, full_name').in('id', uids)
-        for(const p of (prs.data||[]) as any[]){ names[p.id] = p.full_name || 'Member' }
+      // members map: include self + family_members + profiles (names)
+      const names: Record<string, string> = {}
+      if (fid) {
+        const mems = await supabase.from('family_members').select('user_id').eq('family_id', fid)
+        const uids = Array.from(new Set([(mems.data || []).map((m: any) => m.user_id), user.id].flat().filter(Boolean)))
+        if (uids.length) {
+          const prs = await supabase.from('profiles').select('id, full_name').in('id', uids)
+          for (const p of (prs.data || []) as any[]) names[p.id] = p.full_name || 'Member'
+        }
       }
-      names[user.id] = names[user.id] || prof.data?.full_name || 'Me'
-      setMembers(Object.entries(names).map(([id,name])=>({id,name})))
+      names[user.id] = names[user.id] || (prof.data?.full_name || 'Me')
+      setMembers(Object.entries(names).map(([id, name]) => ({ id, name })))
 
       // tables
       const avail = await detectTables()
@@ -129,212 +131,429 @@ export default function CalendarPage(){
 
       await loadEvents(fid, Object.keys(names), todayStr)
       requestAnimationFrame(updateMonthLabels)
-    } finally { setLoading(false) }
-  })() }, []) // eslint-disable-line
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  /* ---------- month labels react to scrolling ---------- */
-  useEffect(()=>{
-    const el = chipsRef.current; if(!el) return
+  /* ---------- chips month label behavior ---------- */
+  useEffect(() => {
+    const el = chipsRef.current
+    if (!el) return
     const onScroll = () => updateMonthLabels()
-    el.addEventListener('scroll', onScroll, { passive:true })
+    el.addEventListener('scroll', onScroll, { passive: true })
     updateMonthLabels()
-    return ()=> el.removeEventListener('scroll', onScroll)
+    return () => el.removeEventListener('scroll', onScroll)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chipDates])
 
-  function updateMonthLabels(){
-    const el = chipsRef.current; if(!el) return
-    const left = el.scrollLeft, right = left + el.clientWidth
+  function updateMonthLabels() {
+    const el = chipsRef.current
+    if (!el) return
+    const left = el.scrollLeft
+    const right = left + el.clientWidth
     const btns = Array.from(el.querySelectorAll('button[data-date]')) as HTMLButtonElement[]
-    if(!btns.length) return
+    if (!btns.length) return
 
-    // Primary = month of first overlapping chip
+    // primary = month of first visible chip
     let firstVisibleDate = btns[0].dataset.date!
-    for(const b of btns){
-      const bx1 = b.offsetLeft, bx2 = bx1 + b.offsetWidth
+    for (const b of btns) {
+      const bx1 = b.offsetLeft,
+        bx2 = bx1 + b.offsetWidth
       const visible = bx2 > left && bx1 < right
-      if(visible){ firstVisibleDate = b.dataset.date!; break }
+      if (visible) {
+        firstVisibleDate = b.dataset.date!
+        break
+      }
     }
     setPrimaryMonth(monthYear(firstVisibleDate))
 
-    // Secondary = first month-start chip that overlaps or is to the right
+    // secondary = first month-start chip visible/right of viewport; clamps to left
     let monthStartBtn: HTMLButtonElement | null = null
-    for(const b of btns){
+    for (const b of btns) {
       const d = b.dataset.date!
-      if(!isMonthStart(d)) continue
-      const bx1 = b.offsetLeft, bx2 = bx1 + b.offsetWidth
+      if (!isMonthStart(d)) continue
+      const bx1 = b.offsetLeft,
+        bx2 = bx1 + b.offsetWidth
       const overlaps = bx2 > left && bx1 < right
-      if(overlaps || bx1 >= left){ monthStartBtn = b; break }
+      if (overlaps || bx1 >= left) {
+        monthStartBtn = b
+        break
+      }
     }
-    if(monthStartBtn){
+    if (monthStartBtn) {
       const x = Math.max(0, monthStartBtn.offsetLeft - left)
       setSecondaryMonth({ label: monthYear(monthStartBtn.dataset.date!), x })
-    }else{
+    } else {
       setSecondaryMonth(null)
     }
   }
 
-  /* ---------- loader: tolerant across schemas, 4m back + 12m fwd ---------- */
-  async function loadEvents(fid: string, familyUserIds: string[], anchorDate: string){
-    const start = ymd(addDays(new Date(anchorDate+'T00:00:00'), -120))
-    const end   = ymd(addDays(new Date(anchorDate+'T00:00:00'),  365))
-
-    const rows: { row:any; table:string }[] = []
-    const tables = availableTables.length ? availableTables : CANDIDATE_TABLES
-
-    // family_id
-    for(const t of tables){
-      const q = await supabase.from(t).select('*').gte('date', start).lte('date', end).eq('family_id', fid)
-      if(!q.error && q.data) rows.push(...(q.data as any[]).map(r=>({row:r, table:t})))
+  /* ---------- helpers ---------- */
+  async function detectTables(): Promise<string[]> {
+    const out: string[] = []
+    for (const t of CANDIDATE_TABLES) {
+      const r = await supabase.from(t).select('*').limit(1)
+      if (!r.error) out.push(t)
     }
-    // user_id
-    for(const t of tables){
-      const q = await supabase.from(t).select('*').gte('date', start).lte('date', end).in('user_id', familyUserIds)
-      if(!q.error && q.data) rows.push(...(q.data as any[]).map(r=>({row:r, table:t})))
-    }
-    // starts_at timestamps
-    for(const t of tables){
-      const q = await supabase.from(t).select('*')
-        .gte('starts_at', `${start}T00:00:00`).lte('starts_at', `${end}T23:59:59`)
-      if(!q.error && q.data) rows.push(...(q.data as any[]).map(r=>({row:r, table:t})))
-    }
-    // plain date
-    for(const t of tables){
-      const q = await supabase.from(t).select('*').gte('date', start).lte('date', end)
-      if(!q.error && q.data) rows.push(...(q.data as any[]).map(r=>({row:r, table:t})))
-    }
-
-    // attendees joins (event_attendees + calendar_attendees)
-    const ids = rows.map(x=>x.row.id).filter(Boolean)
-    const attendeesByEvent: Record<string,string[]> = {}
-    if(ids.length){
-      const ea = await supabase.from('event_attendees').select('event_id,user_id').in('event_id', ids)
-      if(!ea.error && ea.data){ for(const r of ea.data as any[]){ (attendeesByEvent[r.event_id] ||= []).push(r.user_id) } }
-      const ea2 = await supabase.from('calendar_attendees').select('event_id,user_id').in('event_id', ids)
-      if(!ea2.error && ea2.data){ for(const r of ea2.data as any[]){ (attendeesByEvent[r.event_id] ||= []).push(r.user_id) } }
-    }
-
-    const coerceAttendees = (r:any): string[] => {
-      // prefer join tables
-      if(attendeesByEvent[r.id]?.length) return Array.from(new Set(attendeesByEvent[r.id]))
-      // array-ish columns (attendees/participants/member_ids)
-      const candCols = ['attendees','participants','member_ids']
-      for(const c of candCols){
-        if(Array.isArray(r[c])) return (r[c] as any[]).map((x:any)=>String(x))
-        if(typeof r[c] === 'string'){
-          const list = String(r[c]).split(/[,;]+/).map(s=>s.trim()).filter(Boolean)
-          if(list.length) return list
-        }
-      }
-      // fallback to creator
-      if(r.user_id) return [String(r.user_id)]
-      return []
-    }
-
-    const mapRow = (r:any, table:string): CalEvent | null => {
-      let date: string | null = r.date || r.start_date || null
-      const startsAt: string | null = r.starts_at || r.start || r.start_time || r.startTime || null
-      const endsAt:   string | null = r.ends_at   || r.end   || r.end_time   || r.endTime   || null
-      if(!date && typeof startsAt === 'string' && startsAt.includes('T')) date = startsAt.slice(0,10)
-      if(!date) return null
-      let st = r.start_time || null, et = r.end_time || null
-      if(!st && typeof startsAt === 'string'){ const hh = startsAt.split('T')[1]?.slice(0,5); if(hh) st = hh }
-      if(!et && typeof endsAt   === 'string'){ const hh = endsAt.split('T')[1]?.slice(0,5);   if(hh) et = hh }
-      const att = coerceAttendees(r)
-      return { id: r.id, _table: table, title: r.title || 'Event', description: r.description || null, date, start_time: st, end_time: et, attendees: att }
-    }
-
-    const keyset = new Set<string>()
-    const byDate: Record<string, CalEvent[]> = {}
-    for(const {row, table} of rows){
-      const ev = mapRow(row, table); if(!ev) continue
-      if(ev.date < start || ev.date > end) continue
-      const K = `${ev._table}|${ev.id}|${ev.date}`; if(keyset.has(K)) continue; keyset.add(K)
-      ;(byDate[ev.date] ||= []).push(ev)
-    }
-    for(const d of Object.keys(byDate)){ byDate[d].sort((a,b)=> (a.start_time||'') < (b.start_time||'') ? -1 : 1) }
-    setEventsByDate(byDate)
+    return out.length ? out : ['events']
   }
 
-  /* ---------- add, edit, delete ---------- */
-  const [title, setTitle] = useState(''); const [desc, setDesc] = useState('')
-  const [date, setDate] = useState<string>(todayStr)
-  const [startTime, setStartTime] = useState<string>('09:00'); const [endTime, setEndTime] = useState<string>('10:00')
-  const [who, setWho] = useState<string[]>([])
+  function coerceAttendeesFromRow(r: any, fallbackUserId: string): string[] {
+    // prefer join tables (event_attendees / calendar_attendees) — those are loaded in loadEvents
+    if (Array.isArray(r._attendees_join)) return r._attendees_join as string[]
+    // embedded arrays or CSV-ish
+    const candCols = ['attendees', 'participants', 'member_ids']
+    for (const c of candCols) {
+      if (Array.isArray(r[c])) return (r[c] as any[]).map((x: any) => String(x))
+      if (typeof r[c] === 'string') {
+        const list = String(r[c])
+          .split(/[,;]+/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+        if (list.length) return list
+      }
+    }
+    // fallback
+    return [fallbackUserId]
+  }
 
-  // Recurrence
-  const [repeat, setRepeat] = useState<'none'|'daily'|'weekly'|'monthly'>('none')
-  const [interval, setInterval] = useState<number>(1)    // every N days/weeks/months
-  const [occurrences, setOccurrences] = useState<number>(6) // total instances (including the first)  const toggleWho = (id: string) => setWho(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id])
+  async function loadEvents(fid: string, familyUserIds: string[], anchorDate: string) {
+    const start = ymd(addDays(new Date(anchorDate + 'T00:00:00'), -120))
+    const end = ymd(addDays(new Date(anchorDate + 'T00:00:00'), 365))
 
-  const tryInsert = async (table: string, payloads: any[]): Promise<string | null> => {
-    for(const p of payloads){
-      const ins = await supabase.from(table).insert(p).select('id').maybeSingle()
-      if(!ins.error && ins.data) return (ins.data as any).id as string
+    const rows: { row: any; table: string }[] = []
+    const tables = availableTables.length ? availableTables : CANDIDATE_TABLES
+
+    // by family_id
+    for (const t of tables) {
+      const q = await supabase.from(t).select('*').gte('date', start).lte('date', end).eq('family_id', fid)
+      if (!q.error && q.data) rows.push(...(q.data as any[]).map((r) => ({ row: r, table: t })))
+    }
+    // by user_id (creator)
+    for (const t of tables) {
+      const q = await supabase.from(t).select('*').gte('date', start).lte('date', end).eq('user_id', familyUserIds[0] || '')
+      if (!q.error && q.data) rows.push(...(q.data as any[]).map((r) => ({ row: r, table: t })))
+    }
+    // plain date
+    for (const t of tables) {
+      const q = await supabase.from(t).select('*').gte('date', start).lte('date', end)
+      if (!q.error && q.data) rows.push(...(q.data as any[]).map((r) => ({ row: r, table: t })))
+    }
+
+    // join tables for attendees
+    const ids = rows.map((x) => x.row.id).filter(Boolean)
+    const joinMap: Record<string, string[]> = {}
+    if (ids.length) {
+      const ea = await supabase.from('event_attendees').select('event_id,user_id').in('event_id', ids)
+      if (!ea.error && ea.data) {
+        for (const r of ea.data as any[]) (joinMap[r.event_id] ||= []).push(r.user_id)
+      }
+      const ea2 = await supabase.from('calendar_attendees').select('event_id,user_id').in('event_id', ids)
+      if (!ea2.error && ea2.data) {
+        for (const r of ea2.data as any[]) (joinMap[r.event_id] ||= []).push(r.user_id)
+      }
+    }
+
+    const by: Record<string, CalEvent[]> = {}
+    for (const { row, table } of rows) {
+      const ev: CalEvent = {
+        id: String(row.id),
+        title: row.title || row.name || 'Event',
+        description: row.description || row.details || null,
+        date: row.date || (row.starts_at ? String(row.starts_at).slice(0, 10) : todayStr),
+        start_time: row.start_time || (row.starts_at ? String(row.starts_at).slice(11, 16) : null),
+        end_time: row.end_time || (row.ends_at ? String(row.ends_at).slice(11, 16) : null),
+        attendees: (joinMap[row.id] || coerceAttendeesFromRow(row, familyUserIds[0] || '')).filter(Boolean),
+        table,
+      }
+      ;(by[ev.date] ||= []).push(ev)
+    }
+    Object.values(by).forEach((arr) =>
+      arr.sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '') || a.title.localeCompare(b.title))
+    )
+    setEventsByDate(by)
+  }
+
+  async function tryInsert(table: string, variants: any[]) {
+    for (const v of variants) {
+      const ins = await supabase.from(table).insert(v).select('id').maybeSingle()
+      if (!ins.error && ins.data) return (ins.data as any).id as string
     }
     return null
   }
 
-  async function onAdd(){
-    try{
-      const { data: { user } } = await supabase.auth.getUser()
-      if(!user){ notify('error','Sign in first'); return }
-      if(!title.trim()){ notify('error','Add a title'); return }
+  async function onAdd() {
+    try {
+      const { data: userWrap } = await supabase.auth.getUser()
+      const user = userWrap?.user
+      if (!user) {
+        notify('error', 'Sign in first')
+        return
+      }
+      if (!title.trim()) {
+        notify('error', 'Add a title')
+        return
+      }
 
       const base = { title: title.trim(), description: desc || null }
       const d0 = date
 
-      // payload variants for table portability
-      const mkVariants = (d:string) => ([
-        { ...base, date: d, start_time: startTime, end_time: endTime, family_id: familyId || null, user_id: user.id },
-        { ...base, date: d, starts_at: toIso(d, startTime), ends_at: toIso(d, endTime), family_id: familyId || null, user_id: user.id },
-        { ...base, date: d, start_time: startTime, end_time: endTime, user_id: user.id },
-        { ...base, date: d, starts_at: toIso(d, startTime), ends_at: toIso(d, endTime), user_id: user.id },
-        { ...base, date: d }
-      ])
-
       const targets = primaryEventTable ? [primaryEventTable, ...CANDIDATE_TABLES] : CANDIDATE_TABLES
+      const mkVariants = (d: string) => [
+        { ...base, date: d, start_time: startTime || null, end_time: endTime || null, family_id: familyId || null, user_id: user.id },
+        { ...base, date: d, starts_at: toIso(d, startTime || null), ends_at: toIso(d, endTime || null), family_id: familyId || null, user_id: user.id },
+        { ...base, date: d, start_time: startTime || null, end_time: endTime || null, user_id: user.id },
+        { ...base, date: d, starts_at: toIso(d, startTime || null), ends_at: toIso(d, endTime || null), user_id: user.id },
+        { ...base, date: d },
+      ]
 
-      async function insertOne(d:string){
+      async function insertOne(d: string) {
         let insertedId: string | null = null
         let usedTable: string | null = null
-        for(const t of targets){
-          insertedId = await tryInsert(t, mkVariants(d))
-          if(insertedId){ usedTable = t; setPrimaryEventTable(t); break }
+        for (const t of targets) {
+          const id = await tryInsert(t, mkVariants(d))
+          if (id) {
+            insertedId = id
+            usedTable = t
+            setPrimaryEventTable(t)
+            break
+          }
         }
-        if(!insertedId || !usedTable) return { id:null, table:null }
-        // persist attendees, best-effort
-        if((who||[]).length){
+        if (!insertedId || !usedTable) return { id: null, table: null }
+        // attendees
+        if (who.length) {
           await supabase.from(usedTable).update({ attendees: who } as any).eq('id', insertedId)
-          await supabase.from('event_attendees').insert((who||[]).map(uid=>({event_id: insertedId!, user_id: uid}))).catch(()=>{})
+          await supabase.from('event_attendees').insert(who.map((uid) => ({ event_id: insertedId!, user_id: uid }))).catch(() => {})
         }
         return { id: insertedId, table: usedTable }
       }
 
-      // Insert the first event
+      // first event
       const first = await insertOne(d0)
-      if(!first.id){ notify('error','Could not save event (no compatible table).'); return }
-
-      // Expand recurrence (materialize future events) — optional
-      if(repeat !== 'none' && occurrences > 1){
-        const maxOcc = Math.min(occurrences, 36) // safety cap
-        const startDate = new Date(d0 + 'T00:00:00')
-        const mkNext = (index:number) => {
-          if(repeat==='daily')   return ymd(addDays(startDate, index * Math.max(1, interval)))
-          if(repeat==='weekly')  return ymd(addWeeks(startDate, index * Math.max(1, interval)))
-          if(repeat==='monthly') return ymd(addMonthsKeepDOM(startDate, index * Math.max(1, interval)))
-          return d0
-        }
-        const dates: string[] = []
-        for(let i=1;i<maxOcc;i++){ dates.push(mkNext(i)) }
-        for(const d of dates){
-          await insertOne(d)
-        }
+      if (!first.id) {
+        notify('error', 'Could not save event')
+        return
       }
 
-      setTitle(''); setDesc(''); setWho([])
-      await loadEvents(familyId, members.map(m=>m.id), d0)
-      setViewMode('date'); setSelDate(d0)
-      notify('success', repeat==='none' ? 'Event added' : 'Recurring events added')
-      formTopRef.current?.scrollIntoView({ behavior:'smooth', block:'start' })
-    }catch(e){ console.warn(e); notify('error','Something went wrong while saving.') }
+      // recurrence expansion
+      if (repeat !== 'none' && occurrences > 1) {
+        const maxOcc = Math.min(occurrences, 36)
+        const baseDate = new Date(d0 + 'T00:00:00')
+        const mkNext = (i: number) => {
+          if (repeat === 'daily') return ymd(addDays(baseDate, i * Math.max(1, interval)))
+          if (repeat === 'weekly') return ymd(addWeeks(baseDate, i * Math.max(1, interval)))
+          if (repeat === 'monthly') return ymd(addMonthsKeepDOM(baseDate, i * Math.max(1, interval)))
+          return d0
+        }
+        for (let i = 1; i < maxOcc; i++) await insertOne(mkNext(i))
+      }
+
+      setTitle('')
+      setDesc('')
+      setWho([])
+      setRepeat('none')
+      setInterval(1)
+      setOccurrences(6)
+
+      await loadEvents(familyId, members.map((m) => m.id), d0)
+      setViewMode('date')
+      setSelDate(d0)
+      notify('success', repeat === 'none' ? 'Event added' : 'Recurring events added')
+      formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } catch (e) {
+      console.warn(e)
+      notify('error', 'Something went wrong while saving.')
+    }
   }
+
+  /* ---------- UI ---------- */
+  const todayChip = (
+    <button
+      className={`chip today ${selDate === todayStr ? 'on' : ''}`}
+      onClick={() => {
+        setSelDate(todayStr)
+        setViewMode('date')
+        requestAnimationFrame(() => chipsRef.current?.scrollTo({ left: 0, behavior: 'smooth' }))
+      }}
+      data-date={todayStr}
+    >
+      Today
+    </button>
+  )
+
+  const chipButton = (d: string) => (
+    <button key={d} className={`chip ${selDate === d ? 'on' : ''}`} data-date={d} onClick={() => setSelDate(d)}>
+      {d.slice(-2)}
+    </button>
+  )
+
+  const dateChips = (
+    <>
+      <div className="monthbar">
+        <div className="monthlbls">
+          <span className="monthtag primary">{primaryMonth}</span>
+          {secondaryMonth && (
+            <span className="monthtag secondary" style={{ left: secondaryMonth.x }}>{secondaryMonth.label}</span>
+          )}
+        </div>
+      </div>
+
+      <div className="chips sticky-today" ref={chipsRef}>
+        {/* Calendar jump */}
+        <button
+          className="chip"
+          onClick={() => {
+            dateInputRef.current?.showPicker?.()
+            dateInputRef.current?.focus()
+          }}
+        >
+          📅 Calendar
+        </button>
+        <input
+          ref={dateInputRef}
+          type="date"
+          className="visually-hidden"
+          onChange={(e) => {
+            const v = e.target.value
+            if (v) {
+              setSelDate(v)
+              setViewMode('date')
+              // scroll near the chosen date chip
+              const el = chipsRef.current
+              const btn = el?.querySelector(`button[data-date="${v}"]`) as HTMLButtonElement | null
+              if (btn && el) el.scrollTo({ left: Math.max(0, btn.offsetLeft - 20), behavior: 'smooth' })
+            }
+          }}
+        />
+
+        {/* Upcoming toggle */}
+        <button className={`chip ${viewMode === 'upcoming' ? 'on' : ''}`} onClick={() => setViewMode('upcoming')}>
+          Upcoming
+        </button>
+
+        {/* Today (sticky left) */}
+        {todayChip}
+
+        {/* Scrollable future dates */}
+        {chipDates.map(chipButton)}
+      </div>
+    </>
+  )
+
+  const eventsForSelected = eventsByDate[selDate] || []
+  const upcomingList = Object.entries(eventsByDate)
+    .filter(([d]) => d >= todayStr)
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .slice(0, 90) // next ~3 months
+    .flatMap(([d, arr]) => arr.map((e) => ({ d, e })))
+
+  return (
+    <div className="container cal-wrap" style={{ display: 'grid', gap: 14 }}>
+      <div className="cal-head">
+        <h1 className="page-title">Calendar</h1>
+        <button className="button add-btn" onClick={() => formTopRef.current?.scrollIntoView({ behavior: 'smooth' })}>
+          Add event
+        </button>
+      </div>
+
+      {/* Dates strip */}
+      {dateChips}
+
+      {/* Events panel */}
+      {viewMode === 'date' ? (
+        <section className="panel">
+          <div className="form-title" style={{ marginBottom: 6 }}>{selDate}</div>
+          {eventsForSelected.length === 0 ? (
+            <div className="muted">No events.</div>
+          ) : (
+            eventsForSelected.map((ev) => (
+              <div key={`${ev.table}-${ev.id}`} className="ev-row">
+                <div className="ev-title">{ev.title}</div>
+                <div className="ev-time">{rangeFmt(ev.start_time, ev.end_time)}</div>
+                <div className="ev-people">
+                  {ev.attendees.length ? ev.attendees.map((uid) => <span key={uid}>@{members.find((m) => m.id === uid)?.name || 'Member'}</span>) : <span className="muted">—</span>}
+                </div>
+              </div>
+            ))
+          )}
+        </section>
+      ) : (
+        <section className="panel">
+          <div className="form-title">Upcoming (next 3 months)</div>
+          {upcomingList.length === 0 ? (
+            <div className="muted">Nothing scheduled.</div>
+          ) : (
+            upcomingList.map(({ d, e }) => (
+              <div key={`${e.table}-${e.id}`} className="ev-row">
+                <div className="ev-title">{e.title}</div>
+                <div className="ev-time">{d} · {rangeFmt(e.start_time, e.end_time)}</div>
+                <div className="ev-people">
+                  {e.attendees.length ? e.attendees.map((uid) => <span key={uid}>@{members.find((m) => m.id === uid)?.name || 'Member'}</span>) : <span className="muted">—</span>}
+                </div>
+              </div>
+            ))
+          )}
+        </section>
+      )}
+
+      {/* Add event */}
+      <section className="panel" ref={formTopRef} id="add-form">
+        <div className="form-title">Add Event</div>
+        <input className="line-input" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <textarea className="line-input" placeholder="Description (optional)" value={desc} onChange={(e) => setDesc(e.target.value)} />
+        <div className="grid-3">
+          <div>
+            <div className="lbl">Date</div>
+            <input className="pill-input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div>
+            <div className="lbl">Start</div>
+            <input className="pill-input" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+          </div>
+          <div>
+            <div className="lbl">End</div>
+            <input className="pill-input" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+          </div>
+        </div>
+
+        {/* Attendees */}
+        <div className="lbl" style={{ marginTop: 10 }}>Attendees</div>
+        <div className="chips wrap">
+          {members.map((m) => {
+            const on = who.includes(m.id)
+            return (
+              <button key={m.id} className={`chip ${on ? 'on' : ''}`} onClick={() => setWho((prev) => (prev.includes(m.id) ? prev.filter((x) => x !== m.id) : [...prev, m.id]))}>
+                {m.name}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Recurrence */}
+        <div className="grid-3" style={{ marginTop: 12 }}>
+          <div>
+            <div className="lbl">Repeat</div>
+            <select className="pill-input" value={repeat} onChange={(e) => setRepeat(e.target.value as any)}>
+              <option value="none">Does not repeat</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+          <div>
+            <div className="lbl">Every</div>
+            <input className="pill-input" type="number" min={1} value={interval} onChange={(e) => setInterval(Math.max(1, Number(e.target.value || 1)))} />
+          </div>
+          <div>
+            <div className="lbl">Occurrences</div>
+            <input className="pill-input" type="number" min={1} max={36} value={occurrences} onChange={(e) => setOccurrences(Math.max(1, Math.min(36, Number(e.target.value || 1))))} />
+          </div>
+        </div>
+
+        <div className="actions">
+          <button className="button" onClick={onAdd}>Save Event</button>
+        </div>
+      </section>
+    </div>
+  )
+}
