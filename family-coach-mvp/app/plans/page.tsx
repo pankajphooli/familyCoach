@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createClient } from '../../lib/supabaseClient'
 
 type Meal = { id: string; plan_day_id: string; meal_type: string; recipe_name: string | null }
 type WorkoutBlock = { id: string; workout_day_id: string; kind?: string | null; title?: string | null; details?: string | null }
@@ -70,11 +70,7 @@ function mealTagFor(meal: Meal){
 function pickFrom<T>(arr:T[], index:number, fallback:T): T{ return arr.length ? (arr[index % arr.length] || arr[0]) : fallback }
 
 export default function PlansPage(){
-  const supabase = useMemo(()=>{
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-    return createSupabaseClient(url, anon)
-  }, [])
+  const supabase = useMemo(()=> createClient(), [])
 
   const [busy, setBusy] = useState(false)
   const [mainTab, setMainTab] = useState<MainTab>('diet')
@@ -103,7 +99,7 @@ export default function PlansPage(){
     }
   }
 
-  // restore cached week quickly (no logic change)
+  // Quick restore from local cache for snappy first paint
   useEffect(()=>{
     try{
       const key = `plans_cache_${ymdLocal(monday)}`
@@ -123,6 +119,7 @@ export default function PlansPage(){
     try{
       const { data: { user } } = await supabase.auth.getUser()
       if(!user){ return }
+
       const profSel = 'dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
       const profRes = await supabase.from('profiles').select(profSel).eq('id', user.id).maybeSingle()
       setProfile((profRes.data || null) as Profile)
@@ -142,6 +139,7 @@ export default function PlansPage(){
     const rp = normalizeName(rec.dietary_pattern||'')
     if(patt){
       if(rp && !rp.includes(patt) && !(patt==='non_veg_chicken_only' && (rp.includes('non_veg') || rp.includes('omnivore')))){
+        // allow fallback; don't hard-exclude to avoid empty results
       }
     }
     const allergies = (prof.allergies||[]).map(normalizeName)
@@ -151,12 +149,12 @@ export default function PlansPage(){
     if(allergies.length && recAllergens.some(a => allergies.includes(a))) return false
 
     const nameLc = normalizeName(rec.name || '')
-    if(dislikes.length && dislikes.some(d => d && nameLc.includes(d))) return false
+    if(dislikes.length && dislikes.some((d:string) => d && nameLc.includes(d))) return false
 
     const meatPolicy = normalizeName(prof.meat_policy||'')
     if(meatPolicy==='non_veg_chicken_only'){
       const banned = ['beef','pork','bacon','mutton','lamb','fish','salmon','tuna','prawn','shrimp','shellfish']
-      if(banned.some(b => nameLc.includes(b))) return false
+      if(banned.some((b:string) => nameLc.includes(b))) return false
     }
     return true
   }
@@ -166,12 +164,13 @@ export default function PlansPage(){
     const need: string[] = (ex.equipment||[]).map((x:any)=>normalizeName(String(x)))
     const contra: string[] = (ex.contraindications||[]).map((x:any)=>normalizeName(String(x)))
     const flags = [...(prof.injuries||[]), ...(prof.health_conditions||[])].map(normalizeName)
-    if(need.length && need.some(n => n!=='none' && !eqp.includes(n))) return false
-    if(flags.length && contra.some(c => flags.includes(c))) return false
+    if(need.length && need.some((n:string) => n!=='none' && !eqp.includes(n))) return false
+    if(flags.length && contra.some((c:string) => flags.includes(c))) return false
     return true
   }
 
   async function candidatesFor(tag:string, prof:Profile, limit=50): Promise<Recipe[]>{
+    // pull a handful from DB then filter client-side by allergies/dislikes/policy
     let q:any = supabase.from('recipes').select('name, dietary_pattern, allergens, tags, ingredients, cuisine').limit(limit)
     q = q.ilike('tags', `%${tag}%`)
     if(prof.dietary_pattern){ q = q.eq('dietary_pattern', prof.dietary_pattern) }
@@ -254,8 +253,8 @@ export default function PlansPage(){
       const havePd = new Set(((pds.data||[]) as PlanDay[]).map((r)=>r.date))
       const haveWd = new Set(((wds.data||[]) as WorkoutDay[]).map((r)=>r.date))
 
-      const missingPd = weekDates.filter(d=>!havePd.has(d)).map(date=>({ user_id: userId, date }))
-      const missingWd = weekDates.filter(d=>!haveWd.has(d)).map(date=>({ user_id: userId, date }))
+      const missingPd = weekDates.filter((d:string)=>!havePd.has(d)).map((date:string)=>({ user_id: userId, date }))
+      const missingWd = weekDates.filter((d:string)=>!haveWd.has(d)).map((date:string)=>({ user_id: userId, date }))
       await Promise.all([
         missingPd.length ? supabase.from('plan_days').insert(missingPd) : Promise.resolve(),
         missingWd.length ? supabase.from('workout_days').insert(missingWd) : Promise.resolve(),
@@ -282,11 +281,11 @@ export default function PlansPage(){
         const pdId = pdByDate[date]; const wdId = wdByDate[date]
         if(pdId && !pdWithMeals.has(pdId)){
           const defs = await defaultsForMeals(i, prof)
-          defs.forEach(m => mealsToInsert.push({ ...m, plan_day_id: pdId }))
+          defs.forEach((m:any) => mealsToInsert.push({ ...m, plan_day_id: pdId }))
         }
         if(wdId && !wdWithBlocks.has(wdId)){
           const defsB = await pickWorkoutFor(i, prof)
-          defsB.forEach(b => blocksToInsert.push({ ...b, workout_day_id: wdId }))
+          defsB.forEach((b:any) => blocksToInsert.push({ ...b, workout_day_id: wdId }))
         }
       }
       await Promise.all([
@@ -318,9 +317,9 @@ export default function PlansPage(){
     const meals = (mealsRes as any).data as Meal[] || []
     const blocks = (blocksRes as any).data as WorkoutBlock[] || []
 
-    const byDateMeals: Record<string, Meal[]> = {}; weekDates.forEach(d=> byDateMeals[d]=[])
+    const byDateMeals: Record<string, Meal[]> = {}; weekDates.forEach((d:string)=> byDateMeals[d]=[])
     for(const pd of pds){ byDateMeals[pd.date] = meals.filter(m=>m.plan_day_id===pd.id) }
-    const byDateBlocks: Record<string, WorkoutBlock[]> = {}; weekDates.forEach(d=> byDateBlocks[d]=[])
+    const byDateBlocks: Record<string, WorkoutBlock[]> = {}; weekDates.forEach((d:string)=> byDateBlocks[d]=[])
     for(const wd of wds){ byDateBlocks[wd.date] = blocks.filter(b=>b.workout_day_id===wd.id) }
 
     setWeekMeals(byDateMeals)
@@ -400,14 +399,7 @@ export default function PlansPage(){
     if(user) await loadAll(user.id)
   }
 
-  // --- UI helpers (visual polish only; logic unchanged) ---
-  const Seg = ({left,right,value,onChange}:{left:string; right:string; value:'left'|'right'; onChange:(v:'left'|'right')=>void}) => (
-    <div className="rounded-full border p-1" style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:2, background:'var(--seg-bg, rgba(0,0,0,0.04))'}}>
-      <button className="rounded-full px-4 py-2 text-sm" onClick={()=>onChange('left')}  style={{background:value==='left' ? 'var(--foreground, #111)' : 'transparent', color:value==='left' ? '#fff' : 'inherit'}}> {left} </button>
-      <button className="rounded-full px-4 py-2 text-sm" onClick={()=>onChange('right')} style={{background:value==='right'? 'var(--foreground, #111)' : 'transparent', color:value==='right'? '#fff' : 'inherit'}}> {right} </button>
-    </div>
-  )
-
+  // --- UI helpers ---
   const TabBar = ({value, set}:{value:SubTab; set:(v:SubTab)=>void}) => (
     <div className="flex items-center gap-2">
       <button className="button" onClick={()=>set('today')} style={value==='today'?{}:{opacity:.6}}>Today</button>
@@ -475,9 +467,7 @@ export default function PlansPage(){
             </div>
           )}
         </section>
-      )
-
-      }
+      )}
 
       {mainTab==='workout' && (
         <section className="card">
