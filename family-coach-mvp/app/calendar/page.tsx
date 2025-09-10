@@ -55,6 +55,7 @@ export default function CalendarPage(){
 
   const chipsRef = useRef<HTMLDivElement>(null)
   const dateInputRef = useRef<HTMLInputElement>(null)
+  const todayBtnRef = useRef<HTMLButtonElement>(null)
 
   const [eventsByDate, setEventsByDate] = useState<Record<string, CalEvent[]>>({})
   const [eventTable, setEventTable] = useState<string | null>(null)
@@ -131,6 +132,14 @@ export default function CalendarPage(){
     }
   }
 
+// click handler for Today
+  function onTodayClick(){
+  setViewMode('date')
+  setSelDate(ymd(new Date()))
+  // scroll back to default so 📅 / Upcoming / Today are visible
+  requestAnimationFrame(() => chipsRef.current?.scrollTo({ left: 0, behavior: 'smooth' }))
+  }
+  
   /* ---------- tolerant loader (family_id, user_id, starts_at timestamps, plain date) ---------- */
   async function loadEvents(fid: string, dates: string[], familyUserIds: string[]){
     if(!dates.length) return
@@ -263,23 +272,36 @@ export default function CalendarPage(){
         </div>
       </div>
 
-      {/* Chips: 📅, Upcoming, Today, then Tomorrow+ */}
-      <div className="chips" ref={chipsRef}>
-        <button className="chip" onClick={()=> (dateInputRef.current?.showPicker ? dateInputRef.current.showPicker() : dateInputRef.current?.click())}>📅</button>
+      {/* Single SCROLLABLE strip: 📅, Upcoming, Today, and all dates.
+          Today is STICKY only when it hits the left edge. */}
+      <div className="chips sticky-today" ref={chipsRef}>
+        {/* Calendar picker */}
+        <button className="chip" onClick={() => (dateInputRef.current?.showPicker ? dateInputRef.current.showPicker() : dateInputRef.current?.click())}>📅</button>
         <input ref={dateInputRef} type="date" className="visually-hidden" onChange={e=>{
           const v = e.target.value; if(!v) return
           setViewMode('date'); setSelDate(v)
-          // if jump is beyond current list, rebuild from that date+1 for 180 days
-          if(v > chipDates[chipDates.length-1]){
-            const next = daysSpan(addDays(new Date(v+'T00:00:00'), 1), 180)
-            setChipDates(next)
-          }
-          requestAnimationFrame(updateMonthLabels)
         }} />
+      
+        {/* Upcoming toggle */}
         <button className={`chip ${viewMode==='upcoming'?'on':''}`} onClick={()=>setViewMode('upcoming')}>Upcoming</button>
-        <button className={`chip ${viewMode==='date' && selDate===todayStr?'on':''}`} onClick={()=>{ setViewMode('date'); setSelDate(todayStr); requestAnimationFrame(updateMonthLabels) }}>Today</button>
+      
+        {/* TODAY — scrolls with others but becomes sticky when it reaches left */}
+        <button
+          ref={todayBtnRef}
+          className={`chip today ${viewMode==='date' && selDate===ymd(new Date()) ? 'on':''}`}
+          onClick={onTodayClick}
+        >
+          Today
+        </button>
+      
+        {/* Dates (tomorrow onward, or whatever array you already compute) */}
         {chipDates.map(d => (
-          <button key={d} data-date={d} className={`chip ${viewMode==='date' && selDate===d?'on':''}`} onClick={()=>{ setViewMode('date'); setSelDate(d); requestAnimationFrame(updateMonthLabels) }}>
+          <button
+            key={d}
+            data-date={d}
+            className={`chip ${viewMode==='date' && selDate===d?'on':''}`}
+            onClick={()=>{ setViewMode('date'); setSelDate(d) }}
+          >
             {chipLabel(d)}
           </button>
         ))}
