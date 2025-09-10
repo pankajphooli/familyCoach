@@ -41,83 +41,69 @@
 }
 
 /* Sub tabs (Today / Week) */
+/* --- Sub tabs (Today / Week) --- */
 .subtabs{
-  display: flex;
-  gap: 22px;
-  align-items: center;
-  padding: 4px 2px 10px;
+  display:flex; gap:22px; align-items:center; padding:4px 2px 10px;
 }
 .subtabs button{
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  font-weight: 700;
-  font-size: 16px;
-  padding: 4px 0;
-  cursor: pointer;
+  background:transparent; border:none; color:var(--muted);
+  font-weight:700; font-size:16px; padding:4px 0; cursor:pointer;
 }
-.subtabs button.active{
-  color: var(--fg);
-  position: relative;
-}
+.subtabs button.active{ color:var(--fg); position:relative; }
 .subtabs button.active::after{
-  content: "";
-  position: absolute;
-  left: 0; right: 0; bottom: -6px;
-  height: 3px;
-  border-radius: 3px;
-  background: var(--fg);
+  content:""; position:absolute; left:0; right:0; bottom:-6px;
+  height:3px; border-radius:3px; background:var(--fg);
 }
 
-/* Week date chips */
-.chips{
-  display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  padding: 4px 2px 12px;
-}
+/* --- Week date chips (higher contrast) --- */
+.chips{ display:flex; gap:10px; overflow-x:auto; padding:4px 2px 12px; }
 .chip{
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--card-border);
-  background: var(--card);
-  white-space: nowrap;
-  cursor: pointer;
+  padding:10px 14px; border-radius:999px;
+  border:1px solid #d9dbe0;            /* stronger border */
+  background:#eef0f4;                   /* darker bg */
+  color:#111;                           /* readable text */
+  white-space:nowrap; cursor:pointer; font-weight:600;
 }
-.chip.on{
-  background: rgba(0,0,0,0.08);
+.dark .chip{
+  border-color:rgba(255,255,255,0.22);
+  background:rgba(255,255,255,0.12);
+  color:#fff;
 }
-.dark .chip.on{ background: rgba(255,255,255,0.1); }
+.chip.on{ background:#111; color:#fff; border-color:#111; }
+.dark .chip.on{ background:#fff; color:#000; border-color:#fff; }
 
-/* Meal rows */
-.daylist{ display: grid; gap: 16px; }
-
+/* --- Meal rows (consistent alignment) --- */
+.daylist{ display:grid; gap:16px; }
 .mealrow{
-  display: grid;
-  grid-template-columns: 1fr auto;
-  row-gap: 4px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--card-border);
+  display:grid; grid-template-columns:1fr auto; row-gap:6px;
+  padding:12px 0; border-bottom:1px solid var(--card-border);
 }
-.mealrow:last-child{ border-bottom: none; }
+.mealrow:last-child{ border-bottom:none; }
 
-.mr-left{ font-size: 22px; font-weight: 700; }
-.mr-right{ font-size: 16px; opacity: .9; }
-.mr-second{ grid-column: 1 / -1; display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
-.mr-title{ color: var(--muted); }
-.mr-actions{ display: flex; gap: 8px; }
+.mr-left{ font-size:24px; font-weight:800; letter-spacing:0.2px; }
+.mr-right{ font-size:16px; opacity:.9; align-self:center; }
 
+.mr-second{
+  grid-column:1 / -1;
+  display:grid;
+  grid-template-columns: 1fr auto;   /* title left, actions right */
+  gap:10px; align-items:center;
+}
+.mr-title{ color:var(--muted); font-size:18px; }
+
+.mr-actions{
+  display:flex; align-items:center; justify-content:flex-end;
+  gap:10px; min-height:38px;          /* keeps rows same height */
+  flex-wrap:wrap;
+}
 .chipbtn{
-  appearance: none;
-  border: none;
-  background: rgba(0,0,0,0.06);
-  color: var(--fg);
-  border-radius: 999px;
-  padding: 8px 12px;
-  font-weight: 600;
-  cursor: pointer;
+  appearance:none; border:none;
+  background:rgba(0,0,0,0.06);
+  color:var(--fg); border-radius:999px;
+  padding:9px 14px; font-weight:700; line-height:1;
+  display:inline-flex; align-items:center; height:36px;
 }
-.dark .chipbtn{ background: rgba(255,255,255,0.1); }
+.dark .chipbtn{ background:rgba(255,255,255,0.12); }
 
 /* Workout rows */
 .workrow{
