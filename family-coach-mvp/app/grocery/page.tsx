@@ -53,6 +53,7 @@ export default function GroceryPage(){
   const [newName, setNewName] = useState('')
   const [newQty, setNewQty] = useState<number>(1)
   const [newUnit, setNewUnit] = useState('')
+  const [saving, setSaving] = useState(false)
 
   function toast(kind:'success'|'error', msg:string){
     if(typeof window!=='undefined' && (window as any).toast) (window as any).toast(kind, msg)
@@ -126,43 +127,71 @@ export default function GroceryPage(){
   /* -------- actions -------- */
   async function addItem(rawName: string, qty: number, unit?: string | null){
     const name = norm(rawName)
-    if(!name){ toast('error','Enter an item name'); return }
+    if(!name){ alert('Enter an item name'); return }
     if(!qty || qty<1) qty = 1
 
+    // duplicate → offer to bump qty
     const exists = items.find(i => norm(i.name) === name)
     if(exists){
       const ok = window.confirm(`"${exists.name}" already exists. Increase quantity by ${qty}?`)
       if(!ok) return
-      await supabase.from(listTable).update({ quantity: (exists.quantity||1) + qty }).eq('id', exists.id)
+      const upd = await supabase.from(listTable).update({ quantity: (exists.quantity||1) + qty }).eq('id', exists.id)
+      if(upd.error){ alert(`Update failed: ${upd.error.message}`); return }
       await loadList()
       toast('success','Quantity updated')
       return
     }
 
-    const base: any = { name, quantity: qty, done:false }
-    if(familyId) base.family_id = familyId; else base.user_id = userId
+    setSaving(true)
+    let lastErr: any = null
+    try{
+      // Build candidate payloads in a safe order:
+      // 1) family_id (if present), 2) user_id (always)
+      const base: any = { name, quantity: qty, done:false }
+      const withUnit = (p:any) => (unit ? { ...p, unit } : p)
+      const candidates: any[] = []
+      if(familyId) candidates.push(withUnit({ ...base, family_id: familyId }))
+      candidates.push(withUnit({ ...base, user_id: userId }))
 
-    let ok = false
-    const r1 = await supabase.from(listTable).insert({ ...base, unit: unit ?? (newUnit || null) }).select('id').maybeSingle()
-    if(!r1.error) ok = true
-    if(!ok){
-      const r2 = await supabase.from(listTable).insert(base).select('id').maybeSingle()
-      if(!r2.error) ok = true
+      let inserted = false
+      for(const p of candidates){
+        // try with current shape
+        let r = await supabase.from(listTable).insert(p).select('id').maybeSingle()
+        if(r.error){
+          // If table doesn't have "unit" or wrong scope column, try without unsupported keys.
+          const p2 = { ...p }
+          delete (p2 as any).unit
+          // if this candidate used family_id and table doesn't have family_id, try swapping to user_id
+          if(!('user_id' in p2)) p2.user_id = userId
+          delete (p2 as any).family_id
+          r = await supabase.from(listTable).insert(p2).select('id').maybeSingle()
+        }
+        if(!r.error){ inserted = true; break }
+        lastErr = r.error
+      }
+      if(!inserted){
+        alert(`Add failed: ${lastErr?.message || 'Check table columns & RLS'}`)
+        return
+      }
+      setNewName(''); setNewQty(1); setNewUnit('')
+      await loadList()
+      toast('success','Item added')
+    } finally {
+      setSaving(false)
     }
-    if(!ok){ toast('error','Could not add item (check RLS/schema).'); return }
-
-    setNewName(''); setNewQty(1); setNewUnit('')
-    await loadList()
-    toast('success','Item added')
   }
+
   async function onFavClick(f: Fav){ await addItem(f.display || f.name, f.lastQty, f.unit||null) }
+
   async function toggleDone(id: string, next: boolean){
     if(!shoppingActive){ toast('error','Tap “Start Shopping” to tick items.'); return }
-    await supabase.from(listTable).update({ done: next }).eq('id', id)
+    const r = await supabase.from(listTable).update({ done: next }).eq('id', id)
+    if(r.error){ alert(`Update failed: ${r.error.message}`); return }
     setItems(p => p.map(x => x.id===id ? { ...x, done: next } : x))
   }
   async function removeItem(id: string){
-    await supabase.from(listTable).delete().eq('id', id)
+    const r = await supabase.from(listTable).delete().eq('id', id)
+    if(r.error){ alert(`Delete failed: ${r.error.message}`); return }
     setItems(p => p.filter(x => x.id!==id))
   }
   function scrollToAdd(){ addRef.current?.scrollIntoView({ behavior:'smooth', block:'start' }) }
@@ -175,9 +204,13 @@ export default function GroceryPage(){
         name:b.name, quantity:b.quantity||1, unit:b.unit||null, purchased_at: ymd(),
         ...(familyId ? {family_id:familyId}:{user_id:userId})
       }))
-      await supabase.from(historyTable).insert(payloads)
+      const ins = await supabase.from(historyTable).insert(payloads)
+      if(ins.error){ alert(`History insert failed: ${ins.error.message}`) }
     }
-    if(bought.length) await supabase.from(listTable).delete().in('id', bought.map(b=>b.id))
+    if(bought.length){
+      const del = await supabase.from(listTable).delete().in('id', bought.map(b=>b.id))
+      if(del.error){ alert(`Cleanup failed: ${del.error.message}`) }
+    }
     setShoppingActive(false)
     await Promise.all([loadList(), loadHistory(), loadFavs()])
     toast('success','Shopping session completed')
@@ -227,7 +260,7 @@ export default function GroceryPage(){
             </div>
           </section>
 
-          {/* Current list (no horizontal scroll; responsive) */}
+          {/* Current list */}
           <section className="panel">
             {items.length===0 ? (
               <div className="muted">Your list is empty.</div>
@@ -252,7 +285,7 @@ export default function GroceryPage(){
             )}
           </section>
 
-          {/* Add Items card (stacked inputs, button bottom-right) */}
+          {/* Add Items card */}
           <section className="panel" ref={addRef}>
             <div className="form-title">Add Items</div>
             <div className="add-grid">
@@ -260,7 +293,9 @@ export default function GroceryPage(){
               <input className="line-input" type="number" min={1} placeholder="Quantity" value={newQty} onChange={e=>setNewQty(Math.max(1, Number(e.target.value||1)))} />
               <input className="line-input" placeholder="Unit (e.g., kg, pk, gms)" value={newUnit} onChange={e=>setNewUnit(e.target.value)} />
               <div className="save-wrap">
-                <button className="button" onClick={()=>addItem(newName, newQty, newUnit||null)} type="button">Save item</button>
+                <button className="button" disabled={saving} onClick={()=>addItem(newName, newQty, newUnit||null)} type="button">
+                  {saving ? 'Saving…' : 'Save item'}
+                </button>
               </div>
             </div>
           </section>
@@ -287,7 +322,6 @@ export default function GroceryPage(){
         </section>
       )}
 
-      {/* Inline styles to nail the mobile layout */}
       <style jsx>{`
         .tabbar{ display:flex; gap:18px; padding:0 2px; }
         .tab{ background:none; border:none; padding:6px 2px; font-weight:800; color:var(--muted); }
@@ -314,7 +348,6 @@ export default function GroceryPage(){
         .row .qty{ justify-self:end; white-space:nowrap; }
         .row .rm{ justify-self:end; }
 
-        /* History rows reuse row layout, hide checkbox */
         .row.hist{ grid-template-columns: 1fr auto; }
         .row.hist .name{ font-weight:700; }
 
@@ -326,7 +359,6 @@ export default function GroceryPage(){
           .save-wrap{ margin:0; }
         }
 
-        /* Prevent any horizontal scrolling on mobile */
         :global(body){ overflow-x:hidden; }
       `}</style>
     </div>
