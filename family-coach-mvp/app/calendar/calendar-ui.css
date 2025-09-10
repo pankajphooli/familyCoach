@@ -95,3 +95,33 @@
   position:absolute !important; width:1px; height:1px; padding:0; margin:-1px;
   overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
 }
+
+
+/* Scrollable chip row */
+.chips.sticky-today{
+  display:flex;
+  gap:10px;
+  overflow-x:auto;
+  padding:8px 2px 12px;
+  scroll-behavior:smooth;
+}
+
+/* Make TODAY sticky once it touches the left edge */
+.chips.sticky-today .chip.today{
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  /* keep it readable when items scroll under it */
+  background: var(--panel, var(--bg, #fff));
+  box-shadow: 0 0 0 1px var(--border, rgba(0,0,0,.08)) inset;
+}
+
+/* Optional: nicer scroll snapping */
+.chips.sticky-today .chip{ scroll-snap-align:start; white-space:nowrap; }
+.chips.sticky-today{ scroll-snap-type:x proximity; }
+
+/* Hide the native date input we trigger via 📅 */
+.visually-hidden{
+  position:absolute !important; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+}
