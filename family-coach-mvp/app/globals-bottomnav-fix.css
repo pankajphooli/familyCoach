@@ -1,0 +1,17 @@
+/* Bullet-proof bottom nav reset + stickiness */
+.bottom-nav, .bottom-nav ul, .bottom-nav li { list-style:none; margin:0; padding:0; }
+.bottom-nav {
+  position: sticky; bottom: 0; left: 0; right: 0;
+  background: var(--bg);
+  border-top: 1px solid var(--card-border);
+  z-index: 50;
+}
+
+/* horizontal icon bar */
+.bottom-nav ul{
+  display:flex; justify-content:space-around; align-items:center;
+  padding:10px 12px;
+}
+
+/* make room so content never hides behind the nav */
+main, .container, .plans-wrap{ padding-bottom: 84px; }
