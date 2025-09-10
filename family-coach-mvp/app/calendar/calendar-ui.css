@@ -1,18 +1,38 @@
-/* =========================
-   Calendar UI (clean copy)
-   ========================= */
+/* === Calendar UI (fixed) === */
 
-/* Layout */
-.cal-wrap{ padding-bottom: 84px; }
-
-.page-title{ font-size: 32px; font-weight: 800; margin: 8px 0 8px; }
+/* Page frame */
+.cal-wrap{ padding-bottom:84px; }
+.page-title{ font-size:32px; font-weight:800; margin:8px 0; }
 
 .cal-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .add-btn{ padding:10px 14px; border-radius:12px; }
 
-/* Chips (dates & attendees) */
-.chips{ display:flex; gap:10px; overflow-x:auto; padding:10px 2px 12px; }
+/* Month label bar */
+.monthbar{ display:flex; align-items:center; justify-content:flex-start; margin:6px 0 2px; }
+.monthlbls{ position:relative; height:22px; width:100%; display:flex; gap:12px; }
+.monthtag{ font-weight:800; color:var(--muted); letter-spacing:.2px; }
+.monthtag.primary{ position:sticky; left:0; }
+.monthtag.secondary{ position:absolute; top:0; }
+
+/* Chips row (DATES) — single row, scrollable */
+.chips{
+  display:flex;
+  gap:10px;
+  overflow-x:auto;
+  padding:10px 2px 12px;
+  flex-wrap:nowrap;           /* 🔒 never wrap */
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type:x proximity;
+}
+.chips::-webkit-scrollbar{ display:none; } /* optional: hide scrollbar */
+
+/* Items inside chips row must not shrink/wrap */
+.chips .chip{ flex:0 0 auto; scroll-snap-align:start; }
+
+/* A variant we use elsewhere (e.g., attendees) that CAN wrap */
 .chips.wrap{ flex-wrap:wrap; overflow:visible; }
+
+/* Chip look */
 .chip{
   padding:10px 14px; border-radius:999px;
   border:1px solid #d9dbe0; background:#eef0f4; color:#111; font-weight:700;
@@ -22,85 +42,36 @@
 .dark .chip{ border-color:rgba(255,255,255,.22); background:rgba(255,255,255,.12); color:#fff; }
 .dark .chip.on{ background:#fff; color:#000; border-color:#fff; }
 
-/* Panels */
-.panel{
-  background:var(--card);
-  border:1px solid var(--card-border);
-  border-radius:18px;
-  padding:16px;
-  box-shadow:var(--shadow-sm);
+/* Keep TODAY visible when scrolled to the left edge */
+.chips.sticky-today .chip.today{
+  position:sticky; left:0; z-index:3;
+  background:var(--panel, var(--bg, #fff));
+  box-shadow:0 0 0 1px var(--border, rgba(0,0,0,.08)) inset;
 }
+
+/* Panels */
+.panel{ background:var(--card); border:1px solid var(--card-border); border-radius:18px; padding:16px; box-shadow:var(--shadow-sm); }
 .form{ margin-top:12px; }
 .form-title{ font-size:18px; font-weight:800; margin-bottom:8px; }
 
 /* Event rows */
-.ev-row{
-  display:grid;
-  grid-template-columns: 1fr auto;
-  row-gap:8px;
-  padding:12px 0;
-  border-bottom:1px solid var(--card-border);
-}
+.ev-row{ display:grid; grid-template-columns:1fr auto; row-gap:8px; padding:12px 0; border-bottom:1px solid var(--card-border); }
 .ev-row:last-child{ border-bottom:none; }
 .ev-title{ font-size:22px; font-weight:800; }
 .ev-time{ font-size:16px; opacity:.9; align-self:center; }
 .ev-people{ grid-column:1 / -1; display:flex; gap:16px; color:var(--muted); flex-wrap:wrap; }
 
 /* Inputs */
-.line-input{
-  width:100%; border:none; border-bottom:1px solid var(--card-border);
-  background:transparent; padding:12px 4px; margin-top:6px; font-size:16px;
-}
-.grid-3{ display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:12px; margin-top:10px; }
+.line-input{ width:100%; border:none; border-bottom:1px solid var(--card-border); background:transparent; padding:12px 4px; margin-top:6px; font-size:16px; }
+.grid-3{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px; margin-top:10px; }
 .lbl{ font-weight:800; margin-bottom:6px; }
-.pill-input{
-  width:100%; border-radius:999px; border:1px solid var(--card-border);
-  background:var(--card); padding:10px 14px; font-weight:700;
-}
+.pill-input{ width:100%; border-radius:999px; border:1px solid var(--card-border); background:var(--card); padding:10px 14px; font-weight:700; }
 
 /* Buttons row */
 .actions{ display:flex; justify-content:flex-end; margin-top:14px; }
 
-/* Visually hidden input (for 📅 date picker trigger) */
+/* Fully hide native input we trigger via 📅 */
 .visually-hidden{
-  position:absolute !important;
-  width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
-  clip:rect(0,0,0,0); white-space:nowrap; border:0;
+  position:absolute !important; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
 }
-
-/* Month label bar (primary sticky + secondary that moves with 1st-of-month chip) */
-.monthbar{ display:flex; align-items:center; justify-content:flex-start; margin: 4px 0 2px; }
-.monthlbls{ position:relative; height:22px; width:100%; }
-.monthtag{ font-weight:800; color: var(--muted); letter-spacing:.2px; }
-.monthtag.primary{ position:sticky; left:0; }
-.monthtag.secondary{ position:absolute; top:0; /* left is set inline from JS */ }
-
-/* =========================
-   Sticky TODAY behavior
-   ========================= */
-
-/* Single scrollable chip row: make Today sticky when it reaches left edge */
-.chips.sticky-today{
-  display:flex;
-  gap:10px;
-  overflow-x:auto;
-  padding:8px 2px 12px;
-  scroll-behavior:smooth;
-}
-
-/* TODAY chip: sticky, but don't override selected colors */
-.chips.sticky-today .chip.today{
-  position: sticky;
-  left: 0;
-  z-index: 3;
-}
-
-/* When NOT selected, give Today a subtle inset divider so text stays readable over scroll */
-.chips.sticky-today .chip.today:not(.on){
-  background: var(--panel, var(--bg, #fff));
-  box-shadow: 0 0 0 1px var(--border, rgba(0,0,0,.08)) inset;
-}
-
-/* Optional: nicer scroll snapping */
-.chips.sticky-today .chip{ scroll-snap-align:start; white-space:nowrap; }
-.chips.sticky-today{ scroll-snap-type:x proximity; }
