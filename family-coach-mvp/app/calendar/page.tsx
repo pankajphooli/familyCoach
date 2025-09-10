@@ -29,11 +29,12 @@ const chipLabel = (s: string) => {
 }
 const monthYear = (s: string) => new Date(`${s}T00:00:00`)
   .toLocaleString(undefined, { month: 'long', year: 'numeric' })
-const isMonthStart = (s: string) => s.endsWith('-01')
+const isMonthStart = (s: string) => s.slice(-2) === '01'
 const hhmm = (t?: string|null) => t ? t.split(':').slice(0,2).join(':') : ''
 const rangeFmt = (a?: string|null, b?: string|null) => {
   const A = hhmm(a), B = hhmm(b); return (A||B) ? `${A} - ${B}` : ''
 }
+const toIso = (date: string, time?: string|null) => time ? `${date}T${time}:00` : `${date}T00:00:00`
 
 /* ---------- component ---------- */
 export default function CalendarPage(){
@@ -43,26 +44,42 @@ export default function CalendarPage(){
   const [familyId, setFamilyId] = useState<string>('')
   const [members, setMembers] = useState<Member[]>([])
 
-  // Chips now begin *tomorrow*, with Today as its own chip.
+  // Chips: Today + scrollable tomorrow→
   const todayStr = ymd(new Date())
-  const [chipDates, setChipDates] = useState<string[]>(daysSpan(addDays(new Date(), 1), 180)) // ~6 months for safety
+  const [chipDates, setChipDates] = useState<string[]>(daysSpan(addDays(new Date(), 1), 180))
   const [selDate, setSelDate] = useState<string>(todayStr)
   const [viewMode, setViewMode] = useState<ViewMode>('date')
 
-  // Month labels: primary (sticky left) + secondary (moves with first day of next month)
+  // Month labels
   const [primaryMonth, setPrimaryMonth] = useState<string>(monthYear(todayStr))
   const [secondaryMonth, setSecondaryMonth] = useState<{label:string; x:number}|null>(null)
 
+  // Refs
   const chipsRef = useRef<HTMLDivElement>(null)
+  const datesScrollRef = chipsRef // same strip
   const dateInputRef = useRef<HTMLInputElement>(null)
   const todayBtnRef = useRef<HTMLButtonElement>(null)
+  const formTopRef = useRef<HTMLDivElement>(null)
 
+  // Events + table detection
   const [eventsByDate, setEventsByDate] = useState<Record<string, CalEvent[]>>({})
-  const [eventTable, setEventTable] = useState<string | null>(null)
+  const [availableTables, setAvailableTables] = useState<string[]>([])
+  const [primaryEventTable, setPrimaryEventTable] = useState<string | null>(null)
 
   function notify(kind:'success'|'error', msg:string){
     if(typeof window !== 'undefined' && (window as any).toast){ (window as any).toast(kind, msg) }
     else { kind==='error' ? console.warn(msg) : console.log(msg) }
+  }
+
+  /* ---------- table detection ---------- */
+  const CANDIDATE_TABLES = ['events','calendar_events','family_events','calendar','family_calendar']
+  async function detectTables(): Promise<string[]>{
+    const ok: string[] = []
+    for(const t of CANDIDATE_TABLES){
+      const res = await supabase.from(t).select('*').limit(1)
+      if(!res.error) ok.push(t)
+    }
+    return ok
   }
 
   /* ---------- boot ---------- */
@@ -72,7 +89,6 @@ export default function CalendarPage(){
       const { data: { user } } = await supabase.auth.getUser()
       if(!user){ setLoading(false); return }
 
-      // family & members
       const prof = await supabase.from('profiles').select('id, full_name, family_id').eq('id', user.id).maybeSingle()
       const fid = (prof.data?.family_id || '') as string
       setFamilyId(fid)
@@ -87,15 +103,25 @@ export default function CalendarPage(){
       names[user.id] = names[user.id] || prof.data?.full_name || 'Me'
       setMembers(Object.entries(names).map(([id,name])=>({id,name})))
 
-      await loadEvents(fid, chipDates, Object.keys(names))
-      // initialize month labels based on initial scroll (leftmost visible chip)
-      requestAnimationFrame(updateMonthLabels)
+      const avail = await detectTables()
+      setAvailableTables(avail)
+
+      // choose primary table for inserts: one that already has rows for this family or user; else first available; else 'events'
+      let chosen: string | null = null
+      for(const t of avail){
+        const q = await supabase.from(t).select('id').or(`family_id.eq.${fid},user_id.eq.${user.id}`).limit(1)
+        if(!q.error && q.data && q.data.length){ chosen = t; break }
+      }
+      setPrimaryEventTable(chosen || avail[0] || 'events')
+
+      await loadEvents(fid, Object.keys(names), selDate) // includes past + future
+      requestAnimationFrame(updateMonthLabels) // init month labels
     } finally { setLoading(false) }
   })() }, []) // eslint-disable-line
 
-  /* ---------- month labels react to scrolling ---------- */
+  /* ---------- month labels react to chip scrolling ---------- */
   useEffect(()=>{
-    const el = chipsRef.current; if(!el) return
+    const el = datesScrollRef.current; if(!el) return
     const onScroll = () => updateMonthLabels()
     el.addEventListener('scroll', onScroll, { passive:true })
     updateMonthLabels()
@@ -103,80 +129,70 @@ export default function CalendarPage(){
   }, [chipDates])
 
   function updateMonthLabels(){
-    const el = chipsRef.current; if(!el) return
+    const el = datesScrollRef.current; if(!el) return
     const left = el.scrollLeft, right = left + el.clientWidth
-
     const btns = Array.from(el.querySelectorAll('button[data-date]')) as HTMLButtonElement[]
     if(!btns.length) return
 
-    // Primary label = month of the first *visible* chip (any overlap)
+    // Primary = month of first overlapping chip
     let firstVisibleDate = btns[0].dataset.date!
     for(const b of btns){
       const bx1 = b.offsetLeft, bx2 = bx1 + b.offsetWidth
-      if(bx2 > left && bx1 < right){ firstVisibleDate = b.dataset.date!; break }
+      const visible = bx2 > left && bx1 < right
+      if(visible){ firstVisibleDate = b.dataset.date!; break }
     }
     setPrimaryMonth(monthYear(firstVisibleDate))
 
-    // Secondary label = next month-start chip position (moves with that chip, sticks when off-screen)
-    let nextMonthBtn: HTMLButtonElement | null = null
+    // Secondary = first month-start chip that overlaps or is to the right
+    let monthStartBtn: HTMLButtonElement | null = null
     for(const b of btns){
-      if(isMonthStart(b.dataset.date!) && b.offsetLeft > left + 8){
-        nextMonthBtn = b; break
-      }
+      const d = b.dataset.date!
+      if(!isMonthStart(d)) continue
+      const bx1 = b.offsetLeft, bx2 = bx1 + b.offsetWidth
+      const overlaps = bx2 > left && bx1 < right
+      if(overlaps || bx1 >= left){ monthStartBtn = b; break }
     }
-    if(nextMonthBtn){
-      const x = Math.max(0, nextMonthBtn.offsetLeft - left) // position inside viewport
-      setSecondaryMonth({ label: monthYear(nextMonthBtn.dataset.date!), x })
+    if(monthStartBtn){
+      const x = Math.max(0, monthStartBtn.offsetLeft - left)
+      setSecondaryMonth({ label: monthYear(monthStartBtn.dataset.date!), x })
     }else{
       setSecondaryMonth(null)
     }
   }
 
-// click handler for Today
-  function onTodayClick(){
-  setViewMode('date')
-  setSelDate(ymd(new Date()))
-  // scroll back to default so 📅 / Upcoming / Today are visible
-  requestAnimationFrame(() => chipsRef.current?.scrollTo({ left: 0, behavior: 'smooth' }))
-  }
-  
-  /* ---------- tolerant loader (family_id, user_id, starts_at timestamps, plain date) ---------- */
-  async function loadEvents(fid: string, dates: string[], familyUserIds: string[]){
-    if(!dates.length) return
-    const start = todayStr
-    const end   = dates[dates.length-1]
+  /* ---------- loader: union over available tables, wide date window (past & future) ---------- */
+  async function loadEvents(fid: string, familyUserIds: string[], anchorDate: string){
+    const start = ymd(addDays(new Date(anchorDate+'T00:00:00'), -120)) // 4 months back
+    const end   = ymd(addDays(new Date(anchorDate+'T00:00:00'),  365)) // 12 months forward
 
-    const EVENT_TABLES = ['events','calendar_events','family_events','calendar','family_calendar']
-    let rows: any[] = []
-    let used: string | null = null
+    const rows: any[] = []
+    const tables = availableTables.length ? availableTables : CANDIDATE_TABLES
 
-    // by family_id
-    for(const t of EVENT_TABLES){
+    // family_id
+    for(const t of tables){
       const q = await supabase.from(t).select('*').gte('date', start).lte('date', end).eq('family_id', fid)
-      if(q.data && q.data.length){ rows = rows.concat(q.data as any[]); used = used || t }
+      if(!q.error && q.data) rows.push(...q.data as any[])
     }
-    // by user_id
-    for(const t of EVENT_TABLES){
+    // user_id
+    for(const t of tables){
       const q = await supabase.from(t).select('*').gte('date', start).lte('date', end).in('user_id', familyUserIds)
-      if(q.data && q.data.length){ rows = rows.concat(q.data as any[]); used = used || t }
+      if(!q.error && q.data) rows.push(...q.data as any[])
     }
-    // by starts_at timestamps
-    for(const t of EVENT_TABLES){
+    // starts_at timestamps
+    for(const t of tables){
       const q = await supabase.from(t).select('*')
         .gte('starts_at', `${start}T00:00:00`).lte('starts_at', `${end}T23:59:59`)
-      if(q.data && q.data.length){ rows = rows.concat(q.data as any[]); used = used || t }
+      if(!q.error && q.data) rows.push(...q.data as any[])
     }
     // plain date (no family/user filter) as last resort
-    for(const t of EVENT_TABLES){
+    for(const t of tables){
       const q = await supabase.from(t).select('*').gte('date', start).lte('date', end)
-      if(q.data && q.data.length){ rows = rows.concat(q.data as any[]); used = used || t }
+      if(!q.error && q.data) rows.push(...q.data as any[])
     }
 
-    setEventTable(used)
-
-    // attendees join
+    // attendees (optional)
     const ids = rows.map(r=>r.id).filter(Boolean)
-    let attendeesByEvent: Record<string,string[]> = {}
+    const attendeesByEvent: Record<string,string[]> = {}
     if(ids.length){
       const ea = await supabase.from('event_attendees').select('event_id,user_id').in('event_id', ids)
       if(!ea.error && ea.data){
@@ -198,61 +214,86 @@ export default function CalendarPage(){
     }
 
     const keyset = new Set<string>()
-    const byDate: Record<string, CalEvent[]> = {}; for(const d of [todayStr, ...dates]) byDate[d] = []
+    const byDate: Record<string, CalEvent[]> = {}
     for(const raw of rows){
       const ev = mapRow(raw); if(!ev) continue
-      if(ev.date < todayStr || ev.date > end) continue
+      if(ev.date < start || ev.date > end) continue
       const K = `${ev.id}|${ev.date}`; if(keyset.has(K)) continue; keyset.add(K)
-      if(byDate[ev.date]) byDate[ev.date].push(ev)
+      ;(byDate[ev.date] ||= []).push(ev)
     }
     for(const d of Object.keys(byDate)){ byDate[d].sort((a,b)=> (a.start_time||'') < (b.start_time||'') ? -1 : 1) }
     setEventsByDate(byDate)
   }
 
-  /* ---------- add event ---------- */
+  /* ---------- add event (robust variants across schemas) ---------- */
   const [title, setTitle] = useState(''); const [desc, setDesc] = useState('')
   const [date, setDate] = useState<string>(todayStr)
   const [startTime, setStartTime] = useState<string>('09:00'); const [endTime, setEndTime] = useState<string>('10:00')
   const [who, setWho] = useState<string[]>([])
-  const formTopRef = useRef<HTMLDivElement>(null)
   const toggleWho = (id: string) => setWho(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id])
+
+  async function tryInsert(table: string, payloads: any[]): Promise<string | null>{
+    for(const p of payloads){
+      const ins = await supabase.from(table).insert(p).select('id').maybeSingle()
+      if(!ins.error && ins.data) return (ins.data as any).id as string
+    }
+    return null
+  }
 
   async function onAdd(){
     try{
       const { data: { user } } = await supabase.auth.getUser()
       if(!user){ notify('error','Sign in first'); return }
-      if(!familyId){ notify('error','No family found'); return }
       if(!title.trim()){ notify('error','Add a title'); return }
 
-      const base = { title: title.trim(), description: desc||null, date, start_time: startTime, end_time: endTime, family_id: familyId }
+      const base = { title: title.trim(), description: desc || null }
+      const d = date
+      const variants = [
+        // common simple shape
+        { ...base, date: d, start_time: startTime, end_time: endTime, family_id: familyId || null, user_id: user.id },
+        // alt: timestamp columns
+        { ...base, date: d, starts_at: toIso(d, startTime), ends_at: toIso(d, endTime), family_id: familyId || null, user_id: user.id },
+        // minimal (no family_id)
+        { ...base, date: d, start_time: startTime, end_time: endTime, user_id: user.id },
+        { ...base, date: d, starts_at: toIso(d, startTime), ends_at: toIso(d, endTime), user_id: user.id },
+        // bare minimum
+        { ...base, date: d }
+      ]
 
+      const targets = primaryEventTable ? [primaryEventTable, ...CANDIDATE_TABLES] : CANDIDATE_TABLES
       let insertedId: string | null = null
-      if(eventTable){
-        const ins = await supabase.from(eventTable).insert(base).select('id').maybeSingle()
-        if(!ins.error && ins.data) insertedId = (ins.data as any).id
+      for(const t of targets){
+        insertedId = await tryInsert(t, variants)
+        if(insertedId){ setPrimaryEventTable(t); break }
       }
-      if(!insertedId){
-        const targets = ['events','calendar_events','family_events','calendar','family_calendar']
-        for(const t of targets){
-          const ins = await supabase.from(t).insert(base).select('id').maybeSingle()
-          if(!ins.error && ins.data){ insertedId = (ins.data as any).id; break }
-        }
-      }
-      if(!insertedId){ notify('error','Could not save event (table missing).'); return }
+      if(!insertedId){ notify('error','Could not save event (no compatible table).'); return }
 
-      if(who.length){ await supabase.from('event_attendees').insert(who.map(uid=>({event_id: insertedId!, user_id: uid}))) }
+      // attendees table is optional; ignore errors
+      if(who.length){
+        await supabase.from('event_attendees').insert(who.map(uid=>({event_id: insertedId!, user_id: uid})))
+      }
 
       setTitle(''); setDesc(''); setWho([])
-      await loadEvents(familyId, chipDates, members.map(m=>m.id))
-      setViewMode('date'); setSelDate(date)
+      await loadEvents(familyId, members.map(m=>m.id), d)
+      setViewMode('date'); setSelDate(d)
       notify('success','Event added')
       formTopRef.current?.scrollIntoView({ behavior:'smooth', block:'start' })
-    }catch{ notify('error','Something went wrong while saving.') }
+    }catch(e){
+      console.warn(e)
+      notify('error','Something went wrong while saving.')
+    }
+  }
+
+  /* ---------- Today behavior ---------- */
+  function onTodayClick(){
+    setViewMode('date')
+    setSelDate(todayStr)
+    requestAnimationFrame(() => chipsRef.current?.scrollTo({ left: 0, behavior: 'smooth' }))
   }
 
   /* ---------- computed ---------- */
   const upcomingFlat =
-    [todayStr, ...chipDates].slice(0, 8) // today + next 7
+    [todayStr, ...chipDates].slice(0, 8)
       .flatMap(d => (eventsByDate[d]||[]).map(ev => ({date:d, ev})))
 
   return (
@@ -262,7 +303,7 @@ export default function CalendarPage(){
         <button className="button add-btn" onClick={()=>document.getElementById('add-form')?.scrollIntoView({behavior:'smooth'})}>Add event</button>
       </div>
 
-      {/* Month labels */}
+      {/* Month labels (primary sticky, secondary moves with 1st-of-month chip) */}
       <div className="monthbar">
         <div className="monthlbls">
           <span className="monthtag primary">{primaryMonth}</span>
@@ -272,35 +313,36 @@ export default function CalendarPage(){
         </div>
       </div>
 
-      {/* Single SCROLLABLE strip: 📅, Upcoming, Today, and all dates.
-          Today is STICKY only when it hits the left edge. */}
+      {/* Single SCROLLABLE strip: 📅, Upcoming, Today, and all dates (Today becomes sticky via CSS) */}
       <div className="chips sticky-today" ref={chipsRef}>
         {/* Calendar picker */}
         <button className="chip" onClick={() => (dateInputRef.current?.showPicker ? dateInputRef.current.showPicker() : dateInputRef.current?.click())}>📅</button>
-        <input ref={dateInputRef} type="date" className="visually-hidden" onChange={e=>{
+        <input ref={dateInputRef} type="date" className="visually-hidden" onChange={async e=>{
           const v = e.target.value; if(!v) return
           setViewMode('date'); setSelDate(v)
+          await loadEvents(familyId, members.map(m=>m.id), v)
+          requestAnimationFrame(updateMonthLabels)
         }} />
-      
-        {/* Upcoming toggle */}
+
+        {/* Upcoming */}
         <button className={`chip ${viewMode==='upcoming'?'on':''}`} onClick={()=>setViewMode('upcoming')}>Upcoming</button>
-      
-        {/* TODAY — scrolls with others but becomes sticky when it reaches left */}
+
+        {/* TODAY */}
         <button
           ref={todayBtnRef}
-          className={`chip today ${viewMode==='date' && selDate===ymd(new Date()) ? 'on':''}`}
+          className={`chip today ${viewMode==='date' && selDate===todayStr ? 'on':''}`}
           onClick={onTodayClick}
         >
           Today
         </button>
-      
-        {/* Dates (tomorrow onward, or whatever array you already compute) */}
+
+        {/* Dates: tomorrow onward */}
         {chipDates.map(d => (
           <button
             key={d}
             data-date={d}
             className={`chip ${viewMode==='date' && selDate===d?'on':''}`}
-            onClick={()=>{ setViewMode('date'); setSelDate(d) }}
+            onClick={async ()=>{ setViewMode('date'); setSelDate(d); await loadEvents(familyId, members.map(m=>m.id), d); requestAnimationFrame(updateMonthLabels) }}
           >
             {chipLabel(d)}
           </button>
