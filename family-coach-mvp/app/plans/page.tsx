@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '../../lib/supabaseClient'
+import './plans-ui.css'
 
 type Meal = { id: string; plan_day_id: string; meal_type: string; recipe_name: string | null }
 type WorkoutBlock = { id: string; workout_day_id: string; kind?: string | null; title?: string | null; details?: string | null }
@@ -40,11 +41,11 @@ type MainTab = 'diet' | 'workout'
 type SubTab = 'today' | 'week'
 
 const MEAL_TIME: Record<string,string> = {
-  breakfast: '08:00–09:00',
-  snack: '11:00–12:00',
-  lunch: '13:00–14:00',
-  snack_pm: '16:00–17:00',
-  dinner: '19:00–20:00'
+  breakfast: '08:00 - 09:00',
+  snack: '10:30 - 11:00',
+  lunch: '12:30 - 13:30',
+  snack_pm: '16:00 - 16:30',
+  dinner: '18:30 - 19:30'
 }
 
 function ymdLocal(d: Date){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}` }
@@ -61,45 +62,45 @@ function rangeMonToSun(monday: Date){
 }
 function normalizeName(s:string){ return (s||'').trim().toLowerCase() }
 function recipeLink(name?: string | null){ if(!name) return '#'; const q = encodeURIComponent(`${name} recipe`); return `https://www.google.com/search?q=${q}` }
-function mealTagFor(meal: Meal){
-  const t = (meal.meal_type||'').toLowerCase()
+function mealLabel(meal_type?: string | null){
+  const t = (meal_type||'').toLowerCase()
   if(t.includes('break')) return 'Breakfast'
   if(t.includes('lunch')) return 'Lunch'
-  return 'Dinner'
+  if(t.includes('snack')) return 'Snack'
+  if(t.includes('din')) return 'Dinner'
+  return 'Meal'
 }
 function pickFrom<T>(arr:T[], index:number, fallback:T): T{ return arr.length ? (arr[index % arr.length] || arr[0]) : fallback }
 
 export default function PlansPage(){
   const supabase = useMemo(()=> createClient(), [])
-
   const [busy, setBusy] = useState(false)
+
   const [mainTab, setMainTab] = useState<MainTab>('diet')
-  const [dietTab, setDietTab] = useState<SubTab>('today')
-  const [workoutTab, setWorkoutTab] = useState<SubTab>('today')
+  const [dietTab, setDietTab] = useState<SubTab>('week')
+  const [workoutTab, setWorkoutTab] = useState<SubTab>('week')
 
   const [todayMeals, setTodayMeals] = useState<Meal[]>([])
   const [weekMeals, setWeekMeals] = useState<Record<string, Meal[]>>({})
   const [todayBlocks, setTodayBlocks] = useState<WorkoutBlock[]>([])
   const [weekBlocks, setWeekBlocks] = useState<Record<string, WorkoutBlock[]>>({})
-  const [ingredientsFor, setIngredientsFor] = useState<string>('')
+  const [ingredientsFor, setIngredientsFor] = useState<string>('')   // only used for modal (optional)
   const [ingredients, setIngredients] = useState<string[]>([])
   const [replacingId, setReplacingId] = useState<string|null>(null)
   const [altOptions, setAltOptions] = useState<string[]>([])
-  const [profile, setProfile] = useState<Profile|null>(null)
+  const [profile, setProfile] = useState<Profile|any>({})
 
   const todayStr = useMemo(()=> ymdLocal(new Date()), [])
   const monday = useMemo(()=> mondayOfWeek(new Date()), [])
   const weekDates = useMemo(()=> rangeMonToSun(monday).map(ymdLocal), [monday])
+  const [weekSel, setWeekSel] = useState<string>(todayStr)
 
   function notify(kind:'error'|'success', msg:string){
-    if(typeof window !== 'undefined' && (window as any).toast){
-      (window as any).toast(kind, msg)
-    } else {
-      if(kind==='error') console.warn(msg); else console.log(msg)
-    }
+    if(typeof window !== 'undefined' && (window as any).toast){ (window as any).toast(kind, msg) }
+    else { if(kind==='error') console.warn(msg); else console.log(msg) }
   }
 
-  // Quick restore from local cache for snappy first paint
+  // Restore cached results for fast paint
   useEffect(()=>{
     try{
       const key = `plans_cache_${ymdLocal(monday)}`
@@ -122,7 +123,7 @@ export default function PlansPage(){
 
       const profSel = 'dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
       const profRes = await supabase.from('profiles').select(profSel).eq('id', user.id).maybeSingle()
-      setProfile((profRes.data || null) as Profile)
+      setProfile(profRes.data || {})
 
       await ensureWeekIfNeeded(user.id, (profRes.data || {}) as Profile)
       await loadAll(user.id)
@@ -134,24 +135,22 @@ export default function PlansPage(){
     } finally { setBusy(false) }
   })() }, [])
 
+  // ---- Constraints helpers ----
   function isRecipeAllowed(rec: Recipe, prof: Profile){
-    const patt = normalizeName(prof.dietary_pattern||'')
-    const rp = normalizeName(rec.dietary_pattern||'')
+    const patt = normalizeName(prof?.dietary_pattern||'')
+    const rp = normalizeName(rec?.dietary_pattern||'')
     if(patt){
       if(rp && !rp.includes(patt) && !(patt==='non_veg_chicken_only' && (rp.includes('non_veg') || rp.includes('omnivore')))){
-        // allow fallback; don't hard-exclude to avoid empty results
+        // allow fallback so we don't end empty
       }
     }
-    const allergies = (prof.allergies||[]).map(normalizeName)
-    const dislikes = (prof.dislikes||[]).map(normalizeName)
-
-    const recAllergens: string[] = (rec.allergens || []).map((x:any)=>normalizeName(String(x)))
+    const allergies = (prof?.allergies||[]).map(normalizeName)
+    const dislikes = (prof?.dislikes||[]).map(normalizeName)
+    const recAllergens: string[] = (rec?.allergens || []).map((x:any)=>normalizeName(String(x)))
     if(allergies.length && recAllergens.some(a => allergies.includes(a))) return false
-
-    const nameLc = normalizeName(rec.name || '')
+    const nameLc = normalizeName(rec?.name || '')
     if(dislikes.length && dislikes.some((d:string) => d && nameLc.includes(d))) return false
-
-    const meatPolicy = normalizeName(prof.meat_policy||'')
+    const meatPolicy = normalizeName(prof?.meat_policy||'')
     if(meatPolicy==='non_veg_chicken_only'){
       const banned = ['beef','pork','bacon','mutton','lamb','fish','salmon','tuna','prawn','shrimp','shellfish']
       if(banned.some((b:string) => nameLc.includes(b))) return false
@@ -160,20 +159,19 @@ export default function PlansPage(){
   }
 
   function isExerciseAllowed(ex: Exercise, prof:Profile){
-    const eqp = (prof.equipment||[]).map(normalizeName)
+    const eqp = (prof?.equipment||[]).map(normalizeName)
     const need: string[] = (ex.equipment||[]).map((x:any)=>normalizeName(String(x)))
     const contra: string[] = (ex.contraindications||[]).map((x:any)=>normalizeName(String(x)))
-    const flags = [...(prof.injuries||[]), ...(prof.health_conditions||[])].map(normalizeName)
+    const flags = [...(prof?.injuries||[]), ...(prof?.health_conditions||[])].map(normalizeName)
     if(need.length && need.some((n:string) => n!=='none' && !eqp.includes(n))) return false
     if(flags.length && contra.some((c:string) => flags.includes(c))) return false
     return true
   }
 
   async function candidatesFor(tag:string, prof:Profile, limit=50): Promise<Recipe[]>{
-    // pull a handful from DB then filter client-side by allergies/dislikes/policy
     let q:any = supabase.from('recipes').select('name, dietary_pattern, allergens, tags, ingredients, cuisine').limit(limit)
     q = q.ilike('tags', `%${tag}%`)
-    if(prof.dietary_pattern){ q = q.eq('dietary_pattern', prof.dietary_pattern) }
+    if(prof?.dietary_pattern){ q = q.eq('dietary_pattern', prof.dietary_pattern) }
     const { data } = await q
     const list = (data as Recipe[]) || []
     return list.filter((rec: Recipe) => isRecipeAllowed(rec, prof))
@@ -328,18 +326,20 @@ export default function PlansPage(){
     setTodayBlocks(byDateBlocks[todayStr] || [])
   }
 
-  async function openIngredients(meal: Meal){
+  // ——— Actions ———
+  async function addMealIngredientsToGrocery(meal: Meal){
+    const { data: { user } } = await supabase.auth.getUser()
+    if(!user){ notify('error','Sign in first'); return }
     const recipe = meal.recipe_name || ''
-    setIngredientsFor(recipe)
-    setIngredients([])
     const { data: rec } = await supabase.from('recipes').select('*').ilike('name', recipe).maybeSingle()
     const list: string[] = (rec as Recipe | null)?.ingredients || []
-    setIngredients(list || [])
+    if(!list.length){ notify('error','No structured ingredients found for this recipe'); return }
+    await addIngredientsToGrocery(list)
   }
+
   async function addIngredientsToGrocery(items: string[]){
     const { data: { user } } = await supabase.auth.getUser()
     if(!user){ notify('error','Sign in first'); return }
-    if(items.length===0){ notify('error','No structured ingredients found for this recipe'); return }
     const counts: Record<string, number> = {}
     for(const raw of items){ const name = normalizeName(raw); counts[name] = (counts[name]||0) + 1 }
     for(const [name, qty] of Object.entries(counts)){
@@ -350,7 +350,7 @@ export default function PlansPage(){
       }else{
         const ins = await supabase.from('grocery_items').insert({ user_id: user.id, name, done:false, quantity: qty as number })
         if(ins.error){
-          // fallback legacy table name if present
+          // legacy fallback
           let ex2 = await supabase.from('shopping_items').select('id, quantity').eq('user_id', user.id).eq('name', name).maybeSingle()
           if(ex2.data){
             const cur = (ex2.data as any).quantity ?? 1
@@ -368,7 +368,7 @@ export default function PlansPage(){
     setReplacingId(meal.id)
     setAltOptions([])
     const p = (profile || {}) as Profile
-    const tag = mealTagFor(meal)
+    const tag = mealLabel(meal.meal_type)
     const current = normalizeName(meal.recipe_name||'')
 
     async function querySet(applyDiet:boolean, applyTag:boolean){
@@ -399,130 +399,103 @@ export default function PlansPage(){
     if(user) await loadAll(user.id)
   }
 
-  // --- UI helpers ---
-  const TabBar = ({value, set}:{value:SubTab; set:(v:SubTab)=>void}) => (
-    <div className="flex items-center gap-2">
-      <button className="button" onClick={()=>set('today')} style={value==='today'?{}:{opacity:.6}}>Today</button>
-      <button className="button" onClick={()=>set('week')}  style={value==='week' ?{}:{opacity:.6}}>Week</button>
+  // ---------- UI helpers ----------
+  const Segmented = ({value,onChange}:{value:MainTab; onChange:(v:MainTab)=>void}) => (
+    <div className="seg">
+      <button className={value==='diet'?'on':''} onClick={()=>onChange('diet')}>Diet</button>
+      <button className={value==='workout'?'on':''} onClick={()=>onChange('workout')}>Exercise</button>
+    </div>
+  )
+  const SubTabs = ({value,onChange}:{value:SubTab; onChange:(v:SubTab)=>void}) => (
+    <div className="subtabs">
+      <button className={value==='today'?'active':''} onClick={()=>onChange('today')}>Today</button>
+      <button className={value==='week'?'active':''} onClick={()=>onChange('week')}>Week</button>
+    </div>
+  )
+  function fmtDateChip(s:string){
+    const d = new Date(s+'T00:00:00')
+    const dd = String(d.getDate()).padStart(2,'0')
+    const short = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]
+    return `${short} ${dd}`
+  }
+  const DateChips = ({sel,onSel}:{sel:string; onSel:(s:string)=>void}) => (
+    <div className="chips">
+      {weekDates.map((d:string) => <button key={d} className={d===sel?'chip on':'chip'} onClick={()=>onSel(d)}>{fmtDateChip(d)}</button>)}
     </div>
   )
 
-  const tabBtn = (label:string, active:boolean, onClick: ()=>void) => (
-    <button className="button" onClick={onClick} style={active ? { } : { opacity: .6 }}>{label}</button>
+  const MealRow = ({m}:{m:Meal}) => (
+    <div className="mealrow">
+      <div className="mr-left">{mealLabel(m.meal_type)}</div>
+      <div className="mr-right">{MEAL_TIME[m.meal_type] || '—'}</div>
+      <div className="mr-second">
+        <div className="mr-title">{m.recipe_name || 'TBD'}</div>
+        <div className="mr-actions">
+          <button className="chipbtn" onClick={()=>loadReplacements(m)}>Replace</button>
+          <button className="chipbtn" onClick={()=>addMealIngredientsToGrocery(m)}>Add to Grocery</button>
+          <a className="chipbtn" href={recipeLink(m.recipe_name)} target="_blank" rel="noreferrer">Recipe</a>
+        </div>
+      </div>
+    </div>
   )
 
-  return (
-    <div className="container" style={{display:'grid', gap:16}}>
-      <h1 className="text-2xl font-semibold">Plans</h1>
-
-      <div className="flex items-center gap-2 border-b pb-2">
-        {tabBtn('Diet plan', mainTab==='diet', ()=>setMainTab('diet'))}
-        {tabBtn('Exercise plan', mainTab==='workout', ()=>setMainTab('workout'))}
+  const DayMeals = ({date}:{date:string}) => {
+    const meals = weekMeals[date] || []
+    const order = ['breakfast','snack','lunch','snack_pm','dinner']
+    const sorted = [...meals].sort((a,b)=> order.indexOf(a.meal_type||'') - order.indexOf(b.meal_type||''))
+    return (
+      <div className="daylist">
+        {sorted.map((m:Meal) => <MealRow key={m.id} m={m} />)}
+        {sorted.length===0 && <div className="muted" style={{padding:'8px 2px'}}>No meals for this day.</div>}
       </div>
+    )
+  }
+
+  const WorkoutList = ({date}:{date:string}) => {
+    const blocks = weekBlocks[date] || []
+    return (
+      <div className="daylist">
+        {blocks.map((b:WorkoutBlock) => (
+          <div key={b.id} className="workrow">
+            <div className="mr-left">{b.title || b.kind || 'Block'}</div>
+            <div className="mr-right">{b.details || ''}</div>
+          </div>
+        ))}
+        {blocks.length===0 && <div className="muted" style={{padding:'8px 2px'}}>No workout for this day.</div>}
+      </div>
+    )
+  }
+
+  return (
+    <div className="container plans-wrap">
+      <h1 className="page-title">Plans</h1>
+
+      <Segmented value={mainTab} onChange={setMainTab} />
+      {mainTab==='diet'
+        ? <SubTabs value={dietTab} onChange={setDietTab} />
+        : <SubTabs value={workoutTab} onChange={setWorkoutTab} />}
 
       {mainTab==='diet' && (
-        <section className="card">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-medium">Diet plan</h2>
-            <TabBar value={dietTab} set={setDietTab} />
-          </div>
-
-          {dietTab==='today' ? (
-            <div className="grid gap-3">
-              {todayMeals.length===0 && <div className="muted">No meals for today yet.</div>}
-              {todayMeals.map(m=>(
-                <div key={m.id} className="card row" style={{display:'grid', gap:8}}>
-                  <div className="flex items-center justify-between">
-                    <div className="font-medium">{m.meal_type || 'Meal'} — <span className="opacity-70">{MEAL_TIME[m.meal_type] || '—'}</span></div>
-                    <a className="link" href={recipeLink(m.recipe_name)} target="_blank" rel="noreferrer">Recipe ↗</a>
-                  </div>
-                  <div>{m.recipe_name || 'TBD'}</div>
-                  <div className="flex gap-2">
-                    <button className="button-outline" onClick={()=>openIngredients(m)}>Add to grocery</button>
-                    <button className="button-outline" onClick={()=>loadReplacements(m)}>Replace</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="grid gap-4">
-              {Object.keys(weekMeals).length===0 && <div className="muted">No meals for this week yet.</div>}
-              {Object.entries(weekMeals).sort().map(([date, meals]) => (
-                <div key={date} className="card" style={{display:'grid', gap:10}}>
-                  <div className="font-medium">{date}</div>
-                  <ul className="grid gap-2">
-                    {meals.map(m => (
-                      <li key={m.id} className="flex items-center justify-between">
-                        <div>• {m.meal_type || 'Meal'} — <span className="opacity-70">{MEAL_TIME[m.meal_type] || '—'}</span> · <span>{m.recipe_name || 'TBD'}</span></div>
-                        <div className="flex gap-2">
-                          <a className="link" href={recipeLink(m.recipe_name)} target="_blank" rel="noreferrer">Recipe ↗</a>
-                          <button className="button-outline" onClick={()=>openIngredients(m)}>Add to grocery</button>
-                          <button className="button-outline" onClick={()=>loadReplacements(m)}>Replace</button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+        <div className="panel">
+          {dietTab==='today'
+            ? <DayMeals date={todayStr} />
+            : (<>
+                <DateChips sel={weekSel} onSel={setWeekSel} />
+                <DayMeals date={weekSel} />
+              </>)
+          }
+        </div>
       )}
 
       {mainTab==='workout' && (
-        <section className="card">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-medium">Exercise plan</h2>
-            <TabBar value={workoutTab} set={setWorkoutTab} />
-          </div>
-
-          {workoutTab==='today' ? (
-            <div className="grid gap-3">
-              {todayBlocks.length===0 && <div className="muted">No workout for today yet.</div>}
-              {todayBlocks.map(b => (
-                <div key={b.id} className="card row" style={{display:'grid', gap:8}}>
-                  <div className="flex items-center justify-between">
-                    <div className="font-medium">{b.title || b.kind || 'Block'}</div>
-                  </div>
-                  <div className="opacity-80">{b.details || '—'}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="grid gap-4">
-              {Object.keys(weekBlocks).length===0 && <div className="muted">No workouts for this week yet.</div>}
-              {Object.entries(weekBlocks).sort().map(([date, blocks]) => (
-                <div key={date} className="card" style={{display:'grid', gap:8}}>
-                  <div className="font-medium">{date}</div>
-                  <div className="grid gap-2">
-                    {blocks.map(b => (
-                      <div key={b.id} className="flex items-center justify-between">
-                        <div>{b.title || b.kind || 'Block'} — <span className="opacity-70">{b.details || ''}</span></div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {ingredientsFor && (
-        <div className="modal">
-          <div className="modal-card">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium">Ingredients — {ingredientsFor}</h3>
-              <button className="icon-button" onClick={()=>{ setIngredientsFor(''); setIngredients([]) }}>✕</button>
-            </div>
-            <div className="grid gap-2 my-3">
-              {ingredients.length ? ingredients.map((it,i)=>(<div key={i}>• {it}</div>)) : <div className="muted">No structured ingredients found.</div>}
-            </div>
-            <div className="flex justify-end gap-2">
-              <button className="button-outline" onClick={()=>{ setIngredientsFor(''); setIngredients([]) }}>Close</button>
-              <button className="button" onClick={()=>addIngredientsToGrocery(ingredients)}>Add to grocery</button>
-            </div>
-          </div>
+        <div className="panel">
+          {workoutTab==='today'
+            ? <WorkoutList date={todayStr} />
+            : (<>
+                <DateChips sel={weekSel} onSel={setWeekSel} />
+                <WorkoutList date={weekSel} />
+              </>)
+          }
         </div>
       )}
 
@@ -534,15 +507,17 @@ export default function PlansPage(){
               <button className="icon-button" onClick={()=>{ setReplacingId(null); setAltOptions([]) }}>✕</button>
             </div>
             <div className="grid gap-2 my-3">
-              {altOptions.length ? altOptions.map(name => (
-                <button key={name} className="button-outline" onClick={()=>replaceMeal(replacingId!, name)}>{name}</button>
-              )) : <div className="muted">No alternatives found.</div>}
+              {altOptions.length
+                ? altOptions.map((name:string) => (
+                    <button key={name} className="button-outline" onClick={()=>replaceMeal(replacingId!, name)}>{name}</button>
+                  ))
+                : <div className="muted">No alternatives found.</div>}
             </div>
           </div>
         </div>
       )}
 
-      {busy && <div className="muted">Refreshing…</div>}
+      {busy && <div className="muted" style={{marginTop:8}}>Refreshing…</div>}
     </div>
   )
 }
