@@ -1,28 +1,45 @@
-/* Bullet-proof bottom nav + iPhone safe-area support */
+/* Bullet-proof fixed bottom nav + iPhone safe-area support */
+:root { --bn-height: 64px; }
+@supports (padding: max(0px)) {
+  :root { --safe-bottom: max(env(safe-area-inset-bottom), 12px); }
+}
+
 .bottom-nav, .bottom-nav ul, .bottom-nav li { list-style: none; margin: 0; padding: 0; }
 
 .bottom-nav{
-  position: fixed; bottom: 0; left: 0; right: 0;
-  z-index: 100;                       /* above cards */
-  background: var(--bg);
-  border-top: 1px solid var(--card-border);
-  padding-bottom: calc(6px + env(safe-area-inset-bottom));
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  width: 100vw;
+  height: calc(var(--bn-height) + var(--safe-bottom, 0px));
+  background: var(--bg, #ffffff);
+  border-top: 1px solid var(--card-border, #e5e7eb);
+  display: flex; align-items: center; justify-content: center;
+  padding-bottom: var(--safe-bottom, 0px);
+  z-index: 2147483647;           /* on top of everything */
+  transform: translateZ(0);      /* iOS compositor fix */
 }
 
 .bottom-nav ul{
-  max-width: 720px; margin: 0 auto;
-  display: flex; justify-content: space-around; align-items: center;
-  padding: 8px 16px;
+  display: flex; justify-content: space-between; align-items: center;
+  width: 100%; padding: 0 18px;
 }
+
+.bottom-nav li { display: block; }
 
 .bottom-nav a{
   display: flex; align-items: center; justify-content: center;
-  width: 48px; height: 36px;
-  color: var(--muted);                /* icon color */
+  width: 52px; height: 40px;
+  color: var(--muted, #6b7280);        /* visible on desktop too */
   text-decoration: none;
 }
+.bottom-nav a.active{ color: var(--fg, #111827); }
 
-.bottom-nav a.active{ color: var(--fg); }
+/* Dark theme */
+.dark .bottom-nav{ background: #0b0b0b; border-top-color: rgba(255,255,255,.12); }
+.dark .bottom-nav a{ color: rgba(255,255,255,.65); }
+.dark .bottom-nav a.active{ color: #fff; }
 
-/* reserve space so content never hides behind the bar */
-main, .container, .plans-wrap{ padding-bottom: 84px; }
+/* Reserve space so content never hides behind the bar */
+main, .container, .plans-wrap{
+  padding-bottom: calc(var(--bn-height) + 12px + var(--safe-bottom, 0px));
+}
