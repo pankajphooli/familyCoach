@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createClient } from '../lib/supabaseClient'
+import { createClient } from '../../lib/supabaseClient'
 
 type Member = { id: string; name: string }
 type CalEvent = {
