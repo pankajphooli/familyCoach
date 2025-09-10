@@ -31,32 +31,11 @@ function Icon({name, active=false}:{name:IconName; active?:boolean}){
   }
 }
 
-export default function BottomNav(){
-  const pathname = usePathname() || '/'
-  const items = [
-    { href:'/', label:'Home', icon:'home' as const },
-    { href:'/plans', label:'Plans', icon:'plans' as const },
-    { href:'/calendar', label:'Calendar', icon:'calendar' as const },
-    { href:'/grocery', label:'Grocery', icon:'grocery' as const },
-    { href:'/profile', label:'Profile', icon:'profile' as const },
-  ]
-
+export default function BottomNav() {
   return (
-    <nav
-      className="fixed left-0 right-0 bottom-0 border-t bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800"
-      style={{ height: 64, paddingBottom: 'env(safe-area-inset-bottom)', zIndex: 60 }}
-    >
-      <ul style={{display:'grid', gridTemplateColumns:'repeat(5, 1fr)', height:'100%'}}>
-        {items.map(it=>{
-          const active = pathname === it.href || (it.href!=='/' && pathname.startsWith(it.href))
-          return (
-            <li key={it.href} className="flex items-center justify-center">
-              <Link href={it.href} className="flex items-center justify-center" aria-label={it.label}>
-                <Icon name={it.icon} active={active} />
-              </Link>
-            </li>
-          )
-        })}
+    <nav className="bottom-nav" role="navigation">
+      <ul>
+        {/* your icon <li> items */}
       </ul>
     </nav>
   )
