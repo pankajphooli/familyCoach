@@ -1,3 +1,5 @@
+
+// app/layout.tsx
 import '../styles/globals.css'
 import './styles/mobile.css'
 import './globals.css'
@@ -8,14 +10,19 @@ import BottomNav from './components/ui/BottomNav'
 
 export const metadata: Metadata = {
   title: 'HouseholdHQ',
-  description: 'Family planning, health, and groceries',
+  description: 'Family plans, diet, workouts, calendar, and grocery — all in one place.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <main className="min-h-screen pb-24">{children}</main>
+        {/* Main page content */}
+        <main>
+          {children}
+        </main>
+
+        {/* Fixed bottom navigation (must render AFTER children) */}
         <BottomNav />
       </body>
     </html>
