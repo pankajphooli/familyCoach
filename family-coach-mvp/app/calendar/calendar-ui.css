@@ -1,0 +1,49 @@
+/* Reuse overall card system from plans page */
+.cal-wrap{ padding-bottom: 84px; }
+
+.page-title{ font-size: 32px; font-weight: 800; margin: 8px 0 8px; }
+
+.cal-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.add-btn{ padding:10px 14px; border-radius:12px; }
+
+/* Chips (dates & attendees) */
+.chips{ display:flex; gap:10px; overflow-x:auto; padding:10px 2px 12px; }
+.chips.wrap{ flex-wrap:wrap; overflow:visible; }
+.chip{
+  padding:10px 14px; border-radius:999px;
+  border:1px solid #d9dbe0; background:#eef0f4; color:#111; font-weight:700;
+  white-space:nowrap; cursor:pointer;
+}
+.chip.on{ background:#111; color:#fff; border-color:#111; }
+.dark .chip{ border-color:rgba(255,255,255,.22); background:rgba(255,255,255,.12); color:#fff; }
+.dark .chip.on{ background:#fff; color:#000; border-color:#fff; }
+
+/* Panels */
+.panel{ background:var(--card); border:1px solid var(--card-border); border-radius:18px; padding:16px; box-shadow:var(--shadow-sm); }
+.form{ margin-top:12px; }
+.form-title{ font-size:18px; font-weight:800; margin-bottom:8px; }
+
+/* Event rows */
+.ev-row{
+  display:grid; grid-template-columns: 1fr auto; row-gap:8px;
+  padding:12px 0; border-bottom:1px solid var(--card-border);
+}
+.ev-row:last-child{ border-bottom:none; }
+.ev-title{ font-size:22px; font-weight:800; }
+.ev-time{ font-size:16px; opacity:.9; align-self:center; }
+.ev-people{ grid-column:1 / -1; display:flex; gap:16px; color:var(--muted); flex-wrap:wrap; }
+
+/* Inputs */
+.line-input{
+  width:100%; border:none; border-bottom:1px solid var(--card-border);
+  background:transparent; padding:12px 4px; margin-top:6px; font-size:16px;
+}
+.grid-3{ display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:12px; margin-top:10px; }
+.lbl{ font-weight:800; margin-bottom:6px; }
+.pill-input{
+  width:100%; border-radius:999px; border:1px solid var(--card-border);
+  background:var(--card); padding:10px 14px; font-weight:700;
+}
+
+/* Buttons row */
+.actions{ display:flex; justify-content:flex-end; margin-top:14px; }
