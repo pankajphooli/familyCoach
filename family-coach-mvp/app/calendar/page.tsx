@@ -12,7 +12,7 @@ type CalEvent = {
   date: string
   start_time?: string | null
   end_time?: string | null
-  attendees?: string[]           // user_ids/names/emails
+  attendees?: string[]           // user_ids / names / emails
   _table?: string                // source table for edit/delete
 }
 type ViewMode = 'date' | 'upcoming'
@@ -162,7 +162,7 @@ export default function CalendarPage(){
     }
   }
 
-  /* ---------- loader: tolerant across schemas, 4m back + 12m forward ---------- */
+  /* ---------- loader: tolerant across schemas, 4m back + 12m fwd ---------- */
   async function loadEvents(fid: string, familyUserIds: string[], anchorDate: string){
     const start = ymd(addDays(new Date(anchorDate+'T00:00:00'), -120))
     const end   = ymd(addDays(new Date(anchorDate+'T00:00:00'),  365))
@@ -192,24 +192,20 @@ export default function CalendarPage(){
       if(!q.error && q.data) rows.push(...(q.data as any[]).map(r=>({row:r, table:t})))
     }
 
-    // attendees join (event_attendees and calendar_attendees supported)
+    // attendees joins (event_attendees + calendar_attendees)
     const ids = rows.map(x=>x.row.id).filter(Boolean)
     const attendeesByEvent: Record<string,string[]> = {}
     if(ids.length){
       const ea = await supabase.from('event_attendees').select('event_id,user_id').in('event_id', ids)
-      if(!ea.error && ea.data){
-        for(const r of ea.data as any[]){ (attendeesByEvent[r.event_id] ||= []).push(r.user_id) }
-      }
+      if(!ea.error && ea.data){ for(const r of ea.data as any[]){ (attendeesByEvent[r.event_id] ||= []).push(r.user_id) } }
       const ea2 = await supabase.from('calendar_attendees').select('event_id,user_id').in('event_id', ids)
-      if(!ea2.error && ea2.data){
-        for(const r of ea2.data as any[]){ (attendeesByEvent[r.event_id] ||= []).push(r.user_id) }
-      }
+      if(!ea2.error && ea2.data){ for(const r of ea2.data as any[]){ (attendeesByEvent[r.event_id] ||= []).push(r.user_id) } }
     }
 
     const coerceAttendees = (r:any): string[] => {
       // prefer join tables
       if(attendeesByEvent[r.id]?.length) return Array.from(new Set(attendeesByEvent[r.id]))
-      // array columns (attendees/participants/member_ids)
+      // array-ish columns (attendees/participants/member_ids)
       const candCols = ['attendees','participants','member_ids']
       for(const c of candCols){
         if(Array.isArray(r[c])) return (r[c] as any[]).map((x:any)=>String(x))
@@ -288,10 +284,14 @@ export default function CalendarPage(){
       }
       if(!insertedId || !usedTable){ notify('error','Could not save event (no compatible table).'); return }
 
-      // Write attendees both ways (row array column if exists, and join table)
-      await supabase.from(usedTable).update({ attendees: who } as any).eq('id', insertedId).catch(()=>{})
+      // Try to persist attendees on the row (if column exists)
+      const up = await supabase.from(usedTable).update({ attendees: who } as any).eq('id', insertedId)
+      // ignore up.error if column doesn't exist
+
+      // Also write to join table (best-effort)
       if(who.length){
-        await supabase.from('event_attendees').insert(who.map(uid=>({event_id: insertedId!, user_id: uid}))).catch(()=>{})
+        const insEA = await supabase.from('event_attendees').insert(who.map(uid=>({event_id: insertedId!, user_id: uid})))
+        // ignore insEA.error if table doesn't exist
       }
 
       setTitle(''); setDesc(''); setWho([])
@@ -341,9 +341,10 @@ export default function CalendarPage(){
       if(!ok){ notify('error','Could not update event.'); return }
 
       // Replace attendees (row array + join table)
-      await supabase.from(t).update({ attendees: editEv.who } as any).eq('id', id).catch(()=>{})
-      await supabase.from('event_attendees').delete().eq('event_id', id).catch(()=>{})
-      if(editEv.who.length){ await supabase.from('event_attendees').insert(editEv.who.map(uid=>({event_id:id, user_id:uid}))).catch(()=>{}) }
+      const upd = await supabase.from(t).update({ attendees: editEv.who } as any).eq('id', id)
+      // ignore upd.error
+      await supabase.from('event_attendees').delete().eq('event_id', id)
+      if(editEv.who.length){ await supabase.from('event_attendees').insert(editEv.who.map(uid=>({event_id:id, user_id:uid}))) }
 
       await loadEvents(familyId, members.map(m=>m.id), editEv.date)
       setSelDate(editEv.date); setViewMode('date'); setEditEv(null)
@@ -356,7 +357,7 @@ export default function CalendarPage(){
       const t = ev._table || primaryEventTable || 'events'
       const del = await supabase.from(t).delete().eq('id', ev.id)
       if(del.error){ notify('error','Delete failed.'); return }
-      await supabase.from('event_attendees').delete().eq('event_id', ev.id).catch(()=>{})
+      await supabase.from('event_attendees').delete().eq('event_id', ev.id) // ignore errors
       await loadEvents(familyId, members.map(m=>m.id), selDate)
       notify('success','Event deleted')
     }catch(e){ console.warn(e); notify('error','Delete failed.') }
