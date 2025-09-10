@@ -274,7 +274,7 @@ export default function CalendarPage(){
     return null
   }
 
-  async async function onAdd(){
+  async function onAdd(){
     try{
       const { data: { user } } = await supabase.auth.getUser()
       if(!user){ notify('error','Sign in first'); return }
