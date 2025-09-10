@@ -48,12 +48,15 @@ export default function CalendarPage(){
   const [dateChips, setDateChips] = useState<string[]>([])
   const [selDate, setSelDate] = useState<string>(ymd(new Date()))
   const [viewMode, setViewMode] = useState<ViewMode>('date')
-  const [monthLabel, setMonthLabel] = useState<string>(monthYear(ymd(new Date())))
+
+  // month header: can show one or two visible month tags
+  const [visibleMonths, setVisibleMonths] = useState<string[]>([monthYear(ymd(new Date()))])
+
   const chipsRef = useRef<HTMLDivElement>(null)
   const dateInputRef = useRef<HTMLInputElement>(null)
 
   const [eventsByDate, setEventsByDate] = useState<Record<string, CalEvent[]>>({})
-  const [eventTable, setEventTable] = useState<string | null>(null)   // NEW: remember which table loaded
+  const [eventTable, setEventTable] = useState<string | null>(null)
 
   function notify(kind:'success'|'error', msg:string){
     if(typeof window !== 'undefined' && (window as any).toast){ (window as any).toast(kind, msg) }
@@ -75,41 +78,64 @@ export default function CalendarPage(){
       // family members
       const fm = await supabase.from('family_members').select('user_id').eq('family_id', fid)
       const uids = ((fm.data||[]) as any[]).map(r=>r.user_id)
-      let names: Record<string,string> = {}
+      const names: Record<string,string> = {}
       if(uids.length){
         const prs = await supabase.from('profiles').select('id, full_name').in('id', uids)
         for(const p of (prs.data||[]) as any[]){ names[p.id] = p.full_name || 'Member' }
       }
-      names[user.id] = names[user.id] || prof.data?.full_name || 'Me'
+      const { data:{ user:cur } } = await supabase.auth.getUser()
+      if(cur) names[cur.id] = names[cur.id] || (prof.data?.full_name || 'Me')
       setMembers(Object.entries(names).map(([id,name])=>({id,name})))
 
-      // 3-month range from current Monday
-      const mon = mondayOfWeek(new Date())
-      const chips = daysSpan(mon, 90)
-      setDateChips(chips)
-      if(!chips.includes(selDate)) setSelDate(ymd(new Date()))
-      setMonthLabel(monthYear(chips[0]))
+      // default chip range: this Monday → +90 days
+      resetToToday(false)
 
-      await loadEvents(fid, chips, uids.length ? uids.concat(user.id) : [user.id])
+      // load initial events
+      const chips = buildDefaultChips()
+      await loadEvents(fid, chips, Object.keys(names))
     } finally { setLoading(false) }
   })() }, []) // eslint-disable-line
 
-  /* ---------- month label reacts to scrolling ---------- */
+  /* ---------- helpers to (re)build chip range ---------- */
+  const buildDefaultChips = () => daysSpan(mondayOfWeek(new Date()), 90)
+  function resetToToday(scrollIntoView = true){
+    const chips = buildDefaultChips()
+    setDateChips(chips)
+    const today = ymd(new Date())
+    setSelDate(today)
+    setViewMode('date')
+    setVisibleMonths([monthYear(chips[0])])
+    if(scrollIntoView) {
+      requestAnimationFrame(()=> chipsRef.current?.scrollTo({ left: 0, behavior: 'smooth' }))
+    }
+  }
+
+  /* ---------- month labels react to scrolling, can show two ---------- */
   useEffect(()=>{
     const el = chipsRef.current; if(!el) return
     const onScroll = () => {
-      const left = el.scrollLeft
+      const left = el.scrollLeft, right = left + el.clientWidth
       const btns = Array.from(el.querySelectorAll('button[data-date]')) as HTMLButtonElement[]
-      let first:string|undefined
-      for(const b of btns){ if(b.offsetLeft + b.offsetWidth >= left + 8){ first = b.dataset.date!; break } }
-      if(first) setMonthLabel(monthYear(first))
+      const months: string[] = []
+      for(const b of btns){
+        const bx1 = b.offsetLeft, bx2 = bx1 + b.offsetWidth
+        const visible = bx2 > left && bx1 < right   // any overlap with viewport
+        if(visible){
+          const d = b.dataset.date!
+          const tag = monthYear(d)
+          if(!months.includes(tag)) months.push(tag)
+          if(months.length === 2) break
+        }
+      }
+      if(months.length === 0 && btns[0]) months.push(monthYear(btns[0].dataset.date!))
+      setVisibleMonths(months)
     }
     el.addEventListener('scroll', onScroll, { passive:true })
     onScroll()
     return ()=> el.removeEventListener('scroll', onScroll)
   }, [dateChips])
 
-  /* ---------- loader (tolerant) ---------- */
+  /* ---------- tolerant loader ---------- */
   async function loadEvents(fid: string, dates: string[], familyUserIds: string[]){
     if(!dates.length) return
     const start = dates[0], end = dates[dates.length-1]
@@ -117,26 +143,38 @@ export default function CalendarPage(){
     let rows: any[] = []
     let used: string | null = null
 
-    // by family_id
+    // 1) try by family_id
     for(const t of EVENT_TABLES){
       const q = await supabase.from(t).select('*').gte('date', start).lte('date', end).eq('family_id', fid)
       if(q.error && q.status !== 406) continue
-      if(q.data && q.data.length){ rows = q.data as any[]; used = t; break }
+      if(q.data && q.data.length){ rows = rows.concat(q.data as any[]); used = used || t }
     }
-    // fallback by user_id
-    if(!rows.length){
-      for(const t of EVENT_TABLES){
-        const q = await supabase.from(t).select('*').gte('date', start).lte('date', end).in('user_id', familyUserIds)
-        if(q.error && q.status !== 406) continue
-        if(q.data && q.data.length){ rows = q.data as any[]; used = t; break }
-      }
-    }
-    setEventTable(used)  // remember the table we actually used
 
-    // optional join-table for attendees
+    // 2) try by user_id (owner)
+    for(const t of EVENT_TABLES){
+      const q = await supabase.from(t).select('*').gte('date', start).lte('date', end).in('user_id', familyUserIds)
+      if(!q.error && q.data && q.data.length){ rows = rows.concat(q.data as any[]); used = used || t }
+    }
+
+    // 3) try timestamp columns (starts_at within range)
+    for(const t of EVENT_TABLES){
+      const q = await supabase.from(t).select('*')
+        .gte('starts_at', `${start}T00:00:00`).lte('starts_at', `${end}T23:59:59`)
+      if(!q.error && q.data && q.data.length){ rows = rows.concat(q.data as any[]); used = used || t }
+    }
+
+    // 4) fallback: date-only (no family/user filter)
+    for(const t of EVENT_TABLES){
+      const q = await supabase.from(t).select('*').gte('date', start).lte('date', end)
+      if(!q.error && q.data && q.data.length){ rows = rows.concat(q.data as any[]); used = used || t }
+    }
+
+    setEventTable(used)
+
+    // attendees join
+    const ids = rows.map(r=>r.id).filter(Boolean)
     let attendeesByEvent: Record<string,string[]> = {}
-    if(rows.length){
-      const ids = rows.map(r=>r.id).filter(Boolean)
+    if(ids.length){
       const ea = await supabase.from('event_attendees').select('event_id,user_id').in('event_id', ids)
       if(!ea.error && ea.data){
         for(const r of ea.data as any[]){ (attendeesByEvent[r.event_id] ||= []).push(r.user_id) }
@@ -149,15 +187,21 @@ export default function CalendarPage(){
       const endsAt:   string | null = r.ends_at   || r.end   || r.end_time   || r.endTime   || null
       if(!date && typeof startsAt === 'string' && startsAt.includes('T')) date = startsAt.slice(0,10)
       if(!date) return null
-      let st = r.start_time || null; let et = r.end_time || null
+      let st = r.start_time || null, et = r.end_time || null
       if(!st && typeof startsAt === 'string'){ const hh = startsAt.split('T')[1]?.slice(0,5); if(hh) st = hh }
       if(!et && typeof endsAt   === 'string'){ const hh = endsAt.split('T')[1]?.slice(0,5);   if(hh) et = hh }
       const att = Array.isArray(r.attendees) ? r.attendees : (attendeesByEvent[r.id] || [])
       return { id: r.id, title: r.title || 'Event', description: r.description || null, date, start_time: st, end_time: et, attendees: att }
     }
 
+    // de-dup by id+date
+    const keyset = new Set<string>()
     const byDate: Record<string, CalEvent[]> = {}; for(const d of dates) byDate[d]=[]
-    for(const raw of rows){ const ev = mapRow(raw); if(ev && byDate[ev.date]) byDate[ev.date].push(ev) }
+    for(const raw of rows){
+      const ev = mapRow(raw); if(!ev) continue
+      const K = `${ev.id}|${ev.date}`; if(keyset.has(K)) continue; keyset.add(K)
+      if(byDate[ev.date]) byDate[ev.date].push(ev)
+    }
     for(const d of Object.keys(byDate)){ byDate[d].sort((a,b)=> (a.start_time||'') < (b.start_time||'') ? -1 : 1) }
     setEventsByDate(byDate)
   }
@@ -179,7 +223,6 @@ export default function CalendarPage(){
 
       const base = { title: title.trim(), description: desc||null, date, start_time: startTime, end_time: endTime, family_id: familyId }
 
-      // NEW: insert into the same table we loaded from (so Home & Calendar stay in sync)
       let insertedId: string | null = null
       if(eventTable){
         const ins = await supabase.from(eventTable).insert(base).select('id').maybeSingle()
@@ -197,10 +240,9 @@ export default function CalendarPage(){
       if(who.length){ await supabase.from('event_attendees').insert(who.map(uid=>({event_id: insertedId!, user_id: uid}))) }
 
       setTitle(''); setDesc(''); setWho([])
-      // refresh calendar focused on that date
-      const chips = dateChips.includes(date) ? dateChips : (setDateChips(daysSpan(mondayOfWeek(new Date(date+'T00:00:00')), 90)), daysSpan(mondayOfWeek(new Date(date+'T00:00:00')), 90))
+      const chips = dateChips.includes(date) ? dateChips : buildDefaultChips()
       await loadEvents(familyId, chips, members.map(m=>m.id))
-      setViewMode('date'); setSelDate(date); setMonthLabel(monthYear(date))
+      setViewMode('date'); setSelDate(date)
       notify('success','Event added')
       formTopRef.current?.scrollIntoView({ behavior:'smooth', block:'start' })
     }catch{ notify('error','Something went wrong while saving.') }
@@ -215,12 +257,14 @@ export default function CalendarPage(){
 
   function jumpToDate(v: string){
     if(!v) return
-    setViewMode('date'); setSelDate(v); setMonthLabel(monthYear(v))
+    setViewMode('date'); setSelDate(v)
+    // if outside current range, rebuild around that week
     if(!dateChips.includes(v)){
       const anchor = mondayOfWeek(new Date(v+'T00:00:00'))
       const chips = daysSpan(anchor, 90)
       setDateChips(chips)
       loadEvents(familyId, chips, members.map(m=>m.id))
+      requestAnimationFrame(()=> chipsRef.current?.scrollTo({ left: 0, behavior: 'smooth' }))
     }
   }
 
@@ -231,8 +275,14 @@ export default function CalendarPage(){
         <button className="button add-btn" onClick={()=>document.getElementById('add-form')?.scrollIntoView({behavior:'smooth'})}>Add event</button>
       </div>
 
-      {/* Month/Year label */}
-      <div className="monthbar"><div className="monthlbl">{monthLabel}</div></div>
+      {/* Month labels (can show two) */}
+      <div className="monthbar">
+        <div className="monthlbls">
+          {visibleMonths.map(m => (<span key={m} className="monthtag">{m}</span>))}
+        </div>
+        {/* Reset to today */}
+        <button className="chip reset" onClick={()=>resetToToday()}>Today</button>
+      </div>
 
       {/* Chips: 📅 Jump first, then Upcoming, then days */}
       <div className="chips" ref={chipsRef}>
@@ -240,7 +290,7 @@ export default function CalendarPage(){
         <input ref={dateInputRef} type="date" className="visually-hidden" onChange={e=>jumpToDate(e.target.value)} />
         <button className={`chip ${viewMode==='upcoming'?'on':''}`} onClick={()=>setViewMode('upcoming')}>Upcoming</button>
         {dateChips.map(d => (
-          <button key={d} data-date={d} className={`chip ${viewMode==='date' && selDate===d?'on':''}`} onClick={()=>{ setViewMode('date'); setSelDate(d); setMonthLabel(monthYear(d)) }}>
+          <button key={d} data-date={d} className={`chip ${viewMode==='date' && selDate===d?'on':''}`} onClick={()=>{ setViewMode('date'); setSelDate(d) }}>
             {chipLabel(d)}
           </button>
         ))}
