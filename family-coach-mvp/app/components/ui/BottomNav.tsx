@@ -12,25 +12,15 @@ function Icon({ name }: { name: 'home'|'plans'|'calendar'|'grocery'|'profile' })
   }
   switch (name) {
     case 'home':
-      return (
-        <svg {...common}><path d="M3 10.5 12 3l9 7.5"/><path d="M5 11v9h14v-9"/><path d="M9 20v-6h6v6"/></svg>
-      )
+      return <svg {...common}><path d="M3 10.5 12 3l9 7.5"/><path d="M5 11v9h14v-9"/><path d="M9 20v-6h6v6"/></svg>
     case 'plans':
-      return (
-        <svg {...common}><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>
-      )
+      return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>
     case 'calendar':
-      return (
-        <svg {...common}><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M3 11h18"/></svg>
-      )
+      return <svg {...common}><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M3 11h18"/></svg>
     case 'grocery':
-      return (
-        <svg {...common}><path d="M6 6h15l-1.5 8.5a2 2 0 0 1-2 1.6H9.5a2 2 0 0 1-2-1.6L5 3H3"/><circle cx="10" cy="20" r="1.6"/><circle cx="17" cy="20" r="1.6"/></svg>
-      )
+      return <svg {...common}><path d="M6 6h15l-1.5 8.5a2 2 0 0 1-2 1.6H9.5a2 2 0 0 1-2-1.6L5 3H3"/><circle cx="10" cy="20" r="1.6"/><circle cx="17" cy="20" r="1.6"/></svg>
     case 'profile':
-      return (
-        <svg {...common}><circle cx="12" cy="8" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
-      )
+      return <svg {...common}><circle cx="12" cy="8" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
   }
 }
 
