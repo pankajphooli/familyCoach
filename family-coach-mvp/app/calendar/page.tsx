@@ -12,8 +12,8 @@ type CalEvent = {
   date: string
   start_time?: string | null
   end_time?: string | null
-  attendees?: string[]            // user_ids or free-text names/emails
-  _table?: string                 // source table (for edit/delete)
+  attendees?: string[]           // user_ids/names/emails
+  _table?: string                // source table for edit/delete
 }
 type ViewMode = 'date' | 'upcoming'
 
@@ -45,9 +45,9 @@ export default function CalendarPage(){
   const [familyId, setFamilyId] = useState<string>('')
   const [members, setMembers] = useState<Member[]>([])
 
-  // Chips: Today + scrollable tomorrow→
+  // Chip strip: Today + scrollable tomorrow→
   const todayStr = ymd(new Date())
-  const [chipDates, setChipDates] = useState<string[]>(daysSpan(addDays(new Date(), 1), 180))
+  const [chipDates] = useState<string[]>(daysSpan(addDays(new Date(), 1), 180))
   const [selDate, setSelDate] = useState<string>(todayStr)
   const [viewMode, setViewMode] = useState<ViewMode>('date')
 
@@ -65,11 +65,13 @@ export default function CalendarPage(){
   const [availableTables, setAvailableTables] = useState<string[]>([])
   const [primaryEventTable, setPrimaryEventTable] = useState<string | null>(null)
 
-  // Edit state
+  // Inline edit state
   const [editEv, setEditEv] = useState<{
     id: string, table: string, title: string, date: string,
     start_time: string, end_time: string, who: string[]
   } | null>(null)
+  const editRef = useRef<HTMLDivElement>(null)
+  const editTitleRef = useRef<HTMLInputElement>(null)
 
   function notify(kind:'success'|'error', msg:string){
     if(typeof window !== 'undefined' && (window as any).toast){ (window as any).toast(kind, msg) }
@@ -94,6 +96,7 @@ export default function CalendarPage(){
       const { data: { user } } = await supabase.auth.getUser()
       if(!user){ setLoading(false); return }
 
+      // family + members (names)
       const prof = await supabase.from('profiles').select('id, full_name, family_id').eq('id', user.id).maybeSingle()
       const fid = (prof.data?.family_id || '') as string
       setFamilyId(fid)
@@ -108,18 +111,12 @@ export default function CalendarPage(){
       names[user.id] = names[user.id] || prof.data?.full_name || 'Me'
       setMembers(Object.entries(names).map(([id,name])=>({id,name})))
 
+      // tables
       const avail = await detectTables()
       setAvailableTables(avail)
+      setPrimaryEventTable(avail[0] || 'events')
 
-      // choose primary table to insert into
-      let chosen: string | null = null
-      for(const t of avail){
-        const q = await supabase.from(t).select('id').limit(1)
-        if(!q.error && q.data && q.data.length){ chosen = t; break }
-      }
-      setPrimaryEventTable(chosen || avail[0] || 'events')
-
-      await loadEvents(fid, Object.keys(names), todayStr) // include past + future
+      await loadEvents(fid, Object.keys(names), todayStr)
       requestAnimationFrame(updateMonthLabels)
     } finally { setLoading(false) }
   })() }, []) // eslint-disable-line
@@ -165,10 +162,10 @@ export default function CalendarPage(){
     }
   }
 
-  /* ---------- loader: union over available tables, wide window ---------- */
+  /* ---------- loader: tolerant across schemas, 4m back + 12m forward ---------- */
   async function loadEvents(fid: string, familyUserIds: string[], anchorDate: string){
-    const start = ymd(addDays(new Date(anchorDate+'T00:00:00'), -120)) // 4 months back
-    const end   = ymd(addDays(new Date(anchorDate+'T00:00:00'),  365)) // 12 months forward
+    const start = ymd(addDays(new Date(anchorDate+'T00:00:00'), -120))
+    const end   = ymd(addDays(new Date(anchorDate+'T00:00:00'),  365))
 
     const rows: { row:any; table:string }[] = []
     const tables = availableTables.length ? availableTables : CANDIDATE_TABLES
@@ -189,13 +186,13 @@ export default function CalendarPage(){
         .gte('starts_at', `${start}T00:00:00`).lte('starts_at', `${end}T23:59:59`)
       if(!q.error && q.data) rows.push(...(q.data as any[]).map(r=>({row:r, table:t})))
     }
-    // plain date (no family/user filter)
+    // plain date
     for(const t of tables){
       const q = await supabase.from(t).select('*').gte('date', start).lte('date', end)
       if(!q.error && q.data) rows.push(...(q.data as any[]).map(r=>({row:r, table:t})))
     }
 
-    // attendees (optional join table)
+    // attendees join (event_attendees and calendar_attendees supported)
     const ids = rows.map(x=>x.row.id).filter(Boolean)
     const attendeesByEvent: Record<string,string[]> = {}
     if(ids.length){
@@ -203,17 +200,26 @@ export default function CalendarPage(){
       if(!ea.error && ea.data){
         for(const r of ea.data as any[]){ (attendeesByEvent[r.event_id] ||= []).push(r.user_id) }
       }
+      const ea2 = await supabase.from('calendar_attendees').select('event_id,user_id').in('event_id', ids)
+      if(!ea2.error && ea2.data){
+        for(const r of ea2.data as any[]){ (attendeesByEvent[r.event_id] ||= []).push(r.user_id) }
+      }
     }
 
     const coerceAttendees = (r:any): string[] => {
-      // prefer join table if present
-      if(attendeesByEvent[r.id]?.length) return attendeesByEvent[r.id]
-      // else accept array on the row
-      if(Array.isArray(r.attendees)) return r.attendees.map((x:any)=>String(x))
-      // else split common CSV string
-      if(typeof r.attendees === 'string'){
-        return String(r.attendees).split(/[,;]+/).map(s=>s.trim()).filter(Boolean)
+      // prefer join tables
+      if(attendeesByEvent[r.id]?.length) return Array.from(new Set(attendeesByEvent[r.id]))
+      // array columns (attendees/participants/member_ids)
+      const candCols = ['attendees','participants','member_ids']
+      for(const c of candCols){
+        if(Array.isArray(r[c])) return (r[c] as any[]).map((x:any)=>String(x))
+        if(typeof r[c] === 'string'){
+          const list = String(r[c]).split(/[,;]+/).map(s=>s.trim()).filter(Boolean)
+          if(list.length) return list
+        }
       }
+      // fallback to creator
+      if(r.user_id) return [String(r.user_id)]
       return []
     }
 
@@ -282,8 +288,10 @@ export default function CalendarPage(){
       }
       if(!insertedId || !usedTable){ notify('error','Could not save event (no compatible table).'); return }
 
+      // Write attendees both ways (row array column if exists, and join table)
+      await supabase.from(usedTable).update({ attendees: who } as any).eq('id', insertedId).catch(()=>{})
       if(who.length){
-        await supabase.from('event_attendees').insert(who.map(uid=>({event_id: insertedId!, user_id: uid})))
+        await supabase.from('event_attendees').insert(who.map(uid=>({event_id: insertedId!, user_id: uid}))).catch(()=>{})
       }
 
       setTitle(''); setDesc(''); setWho([])
@@ -305,6 +313,15 @@ export default function CalendarPage(){
       who: (ev.attendees||[]).slice(0)
     })
   }
+  // After editEv appears, scroll to it and focus title
+  useEffect(()=>{
+    if(!editEv) return
+    const t = setTimeout(()=>{
+      editRef.current?.scrollIntoView({ behavior:'smooth', block:'start' })
+      editTitleRef.current?.focus()
+    }, 50)
+    return ()=> clearTimeout(t)
+  }, [editEv])
 
   async function onSaveEdit(){
     if(!editEv) return
@@ -323,9 +340,10 @@ export default function CalendarPage(){
       }
       if(!ok){ notify('error','Could not update event.'); return }
 
-      // replace attendees (best-effort)
-      await supabase.from('event_attendees').delete().eq('event_id', id)
-      if(editEv.who.length){ await supabase.from('event_attendees').insert(editEv.who.map(uid=>({event_id:id, user_id:uid}))) }
+      // Replace attendees (row array + join table)
+      await supabase.from(t).update({ attendees: editEv.who } as any).eq('id', id).catch(()=>{})
+      await supabase.from('event_attendees').delete().eq('event_id', id).catch(()=>{})
+      if(editEv.who.length){ await supabase.from('event_attendees').insert(editEv.who.map(uid=>({event_id:id, user_id:uid}))).catch(()=>{}) }
 
       await loadEvents(familyId, members.map(m=>m.id), editEv.date)
       setSelDate(editEv.date); setViewMode('date'); setEditEv(null)
@@ -338,8 +356,7 @@ export default function CalendarPage(){
       const t = ev._table || primaryEventTable || 'events'
       const del = await supabase.from(t).delete().eq('id', ev.id)
       if(del.error){ notify('error','Delete failed.'); return }
-      // cleanup attendees
-      await supabase.from('event_attendees').delete().eq('event_id', ev.id)
+      await supabase.from('event_attendees').delete().eq('event_id', ev.id).catch(()=>{})
       await loadEvents(familyId, members.map(m=>m.id), selDate)
       notify('success','Event deleted')
     }catch(e){ console.warn(e); notify('error','Delete failed.') }
@@ -356,8 +373,7 @@ export default function CalendarPage(){
   const nameFor = (att: string) => {
     const m = members.find(x => x.id === att)
     if(m) return m.name
-    // fallback: if looks like email, show local part; else raw
-    if(att.includes('@')) return att.split('@')[0]
+    if(att.includes('@')) return att.split('@')[0] // email → local part
     return att
   }
 
@@ -397,7 +413,7 @@ export default function CalendarPage(){
           requestAnimationFrame(updateMonthLabels)
         }} />
 
-        {/* Upcoming (now 3 months) */}
+        {/* Upcoming (3 months) */}
         <button className={`chip ${viewMode==='upcoming'?'on':''}`} onClick={()=>setViewMode('upcoming')}>Upcoming</button>
 
         {/* TODAY */}
@@ -491,11 +507,11 @@ export default function CalendarPage(){
         </div>
       </section>
 
-      {/* Inline edit panel (appears below events) */}
+      {/* Inline edit panel */}
       {editEv && (
-        <section className="panel form" style={{marginTop:12}}>
+        <section className="panel form" ref={editRef} style={{marginTop:12}}>
           <h3 className="form-title">Edit Event</h3>
-          <input className="line-input" placeholder="Event Title" value={editEv.title} onChange={e=>setEditEv({...editEv!, title:e.target.value})} />
+          <input ref={editTitleRef} className="line-input" placeholder="Event Title" value={editEv.title} onChange={e=>setEditEv({...editEv!, title:e.target.value})} />
           <div className="grid-3">
             <div>
               <div className="lbl">Date</div>
@@ -513,19 +529,22 @@ export default function CalendarPage(){
           <div style={{marginTop:10}}>
             <div className="lbl">Attendees</div>
             <div className="chips wrap">
-              {members.map(m => (
-                <button
-                  key={m.id}
-                  className={`chip ${editEv.who.includes(m.id)?'on':''}`}
-                  onClick={()=> {
-                    const has = editEv!.who.includes(m.id)
-                    setEditEv({...editEv!, who: has ? editEv!.who.filter(x=>x!==m.id) : [...editEv!.who, m.id]})
-                  }}
-                  type="button"
-                >
-                  {m.name}
-                </button>
-              ))}
+              {members.map(m => {
+                const active = editEv.who.includes(m.id)
+                return (
+                  <button
+                    key={m.id}
+                    className={`chip ${active?'on':''}`}
+                    onClick={()=> {
+                      const has = editEv!.who.includes(m.id)
+                      setEditEv({...editEv!, who: has ? editEv!.who.filter(x=>x!==m.id) : [...editEv!.who, m.id]})
+                    }}
+                    type="button"
+                  >
+                    {m.name}
+                  </button>
+                )
+              })}
             </div>
           </div>
           <div className="actions" style={{gap:8}}>
