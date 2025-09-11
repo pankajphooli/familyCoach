@@ -1,223 +1,425 @@
 'use client'
+
 import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { createClient } from '../lib/supabaseClient'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import './home/home-ui.module.css' // scoped (uses :global)
 
-export default function Home(){
-  const supabase = createClient()
-  const router = useRouter()
+type Meal = { id: string; plan_day_id: string; meal_type: string; recipe_name: string | null }
+type WorkoutBlock = { id: string; workout_day_id: string; kind?: string | null; title?: string | null; details?: string | null }
+type PlanDay = { id: string; date: string }
+type WorkoutDay = { id: string; date: string }
+type CalEvent = { id: string; title: string; date: string; start_time?: string|null; end_time?: string|null }
+type GroceryItem = { id: string; name: string; quantity?: number|null; unit?: string|null; done?: boolean|null }
 
-  // Auth + profile
-  const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<any>(null)
+type Profile = {
+  full_name?: string|null
+  goal_weight?: number|null      // numeric in kg (add this column if missing)
+  goal_date?: string|null        // YYYY-MM-DD (add this column if missing)
+}
 
-  // Dashboard data
-  const [events, setEvents] = useState<any[]>([])
-  const [meals, setMeals] = useState<any[]>([])
-  const [workout, setWorkout] = useState<any[]>([])
-  const [groceries, setGroceries] = useState<any[]>([])
-  const [latestWeight, setLatestWeight] = useState<number | null>(null)
+type Tab = 'today' | 'week'
 
-  // Sign-in states (must be declared at top-level, not inside conditionals)
-  const [emailState, setEmailState] = useState('')
-  const [pwd, setPwd] = useState('')
+/* ---------- helpers ---------- */
+const pad = (n:number)=>String(n).padStart(2,'0')
+function ymd(d: Date){return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
+function mondayOfWeek(d: Date){
+  const copy = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const day = copy.getDay() || 7
+  if(day>1) copy.setDate(copy.getDate()-(day-1))
+  return copy
+}
+function weekDatesFrom(d: Date){
+  const m = mondayOfWeek(d); const out: string[]=[]
+  for(let i=0;i<7;i++){ const dd = new Date(m); dd.setDate(m.getDate()+i); out.push(ymd(dd)) }
+  return out
+}
+const MEAL_TIME: Record<string,string> = {
+  breakfast: '08:00–09:00',
+  snack: '11:00–12:00',
+  lunch: '13:00–14:00',
+  snack_pm: '16:00–17:00',
+  dinner: '19:00–20:00'
+}
+const mealTag = (mt: string) => {
+  const t = (mt||'').toLowerCase()
+  if(t.includes('break')) return 'Breakfast'
+  if(t.includes('lunch')) return 'Lunch'
+  if(t.includes('dinner')) return 'Dinner'
+  if(t.includes('snack')) return 'Snack'
+  return 'Meal'
+}
+const timeRange = (a?:string|null,b?:string|null)=> (a||b)?`${(a||'').slice(0,5)} - ${(b||'').slice(0,5)}`:''
 
-  // Separate state for quick weight (declared at top level)
-  const [quickWeight, setQuickWeight] = useState('')
-
-  useEffect(() => {
-    let mounted = true
-    supabase.auth.getUser().then(async ({ data }) => {
-      if (!mounted) return
-      setUser(data.user || null)
-      if (data.user) {
-        // fetch profile
-        const { data: prof } = await supabase.from('profiles').select('*').eq('id', data.user.id).maybeSingle()
-        if (!mounted) return
-        setProfile(prof || null)
-        // if missing core onboarding info, redirect
-        if (!prof) { router.push('/onboarding'); return }
-        // load dashboard data
-        await Promise.all([
-          loadEvents(prof),
-          loadDiet(data.user),
-          loadWorkout(data.user),
-          loadGroceries(prof),
-          loadLatestWeight(data.user)
-        ])
-      }
-    })
-    return () => { mounted = false }
+/* ---------- component ---------- */
+export default function HomePage(){
+  const supabase = useMemo(()=>{
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+    return createSupabaseClient(url, anon)
   }, [])
 
-  const loadEvents = async (prof:any) => {
-    if(!prof?.family_id) { setEvents([]); return }
-    const from = new Date(); const to = new Date(); to.setDate(to.getDate()+14)
-    const { data: evs } = await supabase.from('calendar_events')
-      .select('id,title,start_ts,end_ts,all_day,event_attendees(user_id)')
-      .eq('family_id', prof.family_id).gte('start_ts', from.toISOString()).lte('start_ts', to.toISOString()).order('start_ts')
-    setEvents(evs||[])
+  const [tab, setTab] = useState<Tab>('today')
+  const [selDay, setSelDay] = useState<string>(ymd(new Date()))
+  const [weekDates, setWeekDates] = useState<string[]>(weekDatesFrom(new Date()))
+
+  // profile & goal
+  const [profile, setProfile] = useState<Profile|null>(null)
+  const [latestWeight, setLatestWeight] = useState<number|null>(null)
+
+  // data
+  const [eventsByDate, setEventsByDate] = useState<Record<string,CalEvent[]>>({})
+  const [mealsByDate, setMealsByDate] = useState<Record<string,Meal[]>>({})
+  const [blocksByDate, setBlocksByDate] = useState<Record<string,WorkoutBlock[]>>({})
+  const [grocery, setGrocery] = useState<GroceryItem[]>([])
+
+  // weight input
+  const [weightInput, setWeightInput] = useState<string>('')
+
+  const today = ymd(new Date())
+
+  function notify(kind:'success'|'error', msg:string){
+    if(typeof window!=='undefined' && (window as any).toast){ (window as any).toast(kind,msg) }
+    else { (kind==='error'?console.warn:console.log)(msg) }
   }
 
-  const loadDiet = async (u:any) => {
-    const today = new Date().toISOString().slice(0,10)
-    const { data: day } = await supabase.from('plan_days').select('id').eq('user_id', u.id).eq('date', today).maybeSingle()
-    if(!day){ setMeals([]); return }
-    const { data: ms } = await supabase.from('plan_meals').select('*').eq('plan_day_id', day.id)
-    setMeals(ms||[])
-  }
+  useEffect(()=>{ setWeekDates(weekDatesFrom(new Date())) }, [])
 
-  const loadWorkout = async (u:any) => {
-    const today = new Date().toISOString().slice(0,10)
-    const { data: wday } = await supabase.from('workout_days').select('id').eq('user_id', u.id).eq('date', today).maybeSingle()
-    if(!wday){ setWorkout([]); return }
-    const { data: blocks } = await supabase.from('workout_blocks').select('*').eq('workout_day_id', wday.id)
-    setWorkout(blocks||[])
-  }
-
-  const loadGroceries = async (prof:any) => {
-    if(!prof?.family_id){ setGroceries([]); return }
-    const { data: items } = await supabase.from('grocery_items').select('*').eq('family_id', prof.family_id).order('last_added_at', { ascending: false }).limit(6)
-    setGroceries(items||[])
-  }
-
-  const loadLatestWeight = async (u:any) => {
-    const { data: logs } = await supabase.from('logs_biometrics').select('weight_kg, date').eq('user_id', u.id).order('date', { ascending:false }).limit(1)
-    if (logs && logs.length>0) setLatestWeight(Number(logs[0].weight_kg))
-    else setLatestWeight(null)
-  }
-
-  const markMealEaten = async (meal:any, pct:number=100) => {
-    const today = new Date().toISOString().slice(0,10)
-    const { data: { user } } = await supabase.auth.getUser()
+  useEffect(()=>{ (async()=>{
+    const { data:{ user } } = await supabase.auth.getUser()
     if(!user) return
-    await supabase.from('logs_meals').insert({ user_id: user.id, date: today, meal_type: meal.meal_type, compliance_pct: pct })
-    alert('Logged!')
+
+    // profile + name/goal
+    const profSel = 'full_name, goal_weight, goal_date'
+    const profRes = await supabase.from('profiles').select(profSel).eq('id', user.id).maybeSingle()
+    setProfile((profRes.data||null) as Profile)
+
+    // latest weight (weights table: user_id, date, kg)
+    const w = await supabase.from('weights').select('kg').eq('user_id', user.id).order('date',{ascending:false}).limit(1).maybeSingle()
+    setLatestWeight((w.data as any)?.kg ?? null)
+
+    // calendar events next 14d (events table tolerant)
+    const start = today, end = ymd(new Date(new Date().setDate(new Date().getDate()+14)))
+    const evTables = ['events','calendar_events','family_events','household_events']
+    const evMap: Record<string,CalEvent[]> = {}
+    for(const t of evTables){
+      const r = await supabase.from(t).select('*').gte('date',start).lte('date',end)
+      if(!r.error && r.data){
+        for(const row of r.data as any[]){
+          const d = row.date
+          const ev: CalEvent = {
+            id: String(row.id), title: row.title || row.name || 'Event', date: d,
+            start_time: row.start_time || (row.starts_at?String(row.starts_at).slice(11,16):null),
+            end_time: row.end_time || (row.ends_at?String(row.ends_at).slice(11,16):null)
+          }
+          ;(evMap[d] ||= []).push(ev)
+        }
+      }
+    }
+    Object.values(evMap).forEach(arr=>arr.sort((a,b)=>(a.start_time||'').localeCompare(b.start_time||'')))
+    setEventsByDate(evMap)
+
+    // meals/workouts for this week
+    const week = weekDatesFrom(new Date())
+    // plan_days / meals
+    const pds = await supabase.from('plan_days').select('id,date').eq('user_id', user.id).in('date', week)
+    const pdIds = ((pds.data||[]) as PlanDay[]).map(p=>p.id)
+    const meals = pdIds.length ? await supabase.from('meals').select('id,plan_day_id,meal_type,recipe_name').in('plan_day_id', pdIds) : {data:[]}
+    const byMeals: Record<string,Meal[]> = {}; week.forEach(d=>byMeals[d]=[])
+    for(const pd of (pds.data||[]) as PlanDay[]){ byMeals[pd.date] = (meals.data||[] as Meal[]).filter(m=>m.plan_day_id===pd.id) }
+    setMealsByDate(byMeals)
+
+    // workout_days / workout_blocks
+    const wds = await supabase.from('workout_days').select('id,date').eq('user_id', user.id).in('date', week)
+    const wdIds = ((wds.data||[]) as WorkoutDay[]).map(w=>w.id)
+    const blocks = wdIds.length ? await supabase.from('workout_blocks').select('id,workout_day_id,kind,title,details').in('workout_day_id', wdIds) : {data:[]}
+    const byBlocks: Record<string,WorkoutBlock[]> = {}; week.forEach(d=>byBlocks[d]=[])
+    for(const wd of (wds.data||[]) as WorkoutDay[]){ byBlocks[wd.date] = (blocks.data||[] as WorkoutBlock[]).filter(b=>b.workout_day_id===wd.id) }
+    setBlocksByDate(byBlocks)
+
+    // grocery (current list)
+    const gr = await supabase.from('grocery_items').select('id,name,quantity,unit,done').eq('user_id', user.id).order('name')
+    setGrocery((gr.data||[]) as GroceryItem[])
+  })() }, [supabase])
+
+  /* ---------- quick generators (today only, safe-insert) ---------- */
+  async function ensureDietToday(){
+    const { data:{ user } } = await supabase.auth.getUser()
+    if(!user){ notify('error','Sign in first'); return }
+    const pd = await supabase.from('plan_days').select('id').eq('user_id', user.id).eq('date', today).maybeSingle()
+    let pdId = (pd.data as any)?.id as string|undefined
+    if(!pdId){
+      const ins = await supabase.from('plan_days').insert({ user_id:user.id, date:today }).select('id').maybeSingle()
+      pdId = (ins.data as any)?.id
+    }
+    if(!pdId){ notify('error','Could not create day'); return }
+    const hasMeals = await supabase.from('meals').select('id').eq('plan_day_id', pdId)
+    if(!hasMeals.error && (hasMeals.data||[]).length===0){
+      const defaults = [
+        { meal_type:'breakfast', recipe_name:'Oat Bowl' },
+        { meal_type:'lunch',     recipe_name:'Chicken Wrap' },
+        { meal_type:'dinner',    recipe_name:'Stir Fry Veg + Tofu' },
+      ]
+      await supabase.from('meals').insert(defaults.map(m=>({...m, plan_day_id: pdId})))
+    }
+    notify('success','Diet generated for today'); // refresh
+    const pd2 = await supabase.from('plan_days').select('id,date').eq('user_id', user.id).in('date', weekDates)
+    const pdIds2 = ((pd2.data||[]) as PlanDay[]).map(p=>p.id)
+    const meals2 = pdIds2.length ? await supabase.from('meals').select('*').in('plan_day_id', pdIds2) : {data:[]}
+    const by: Record<string,Meal[]> = {}; weekDates.forEach(d=>by[d]=[])
+    for(const p of (pd2.data||[]) as PlanDay[]){ by[p.date] = (meals2.data||[] as Meal[]).filter(m=>m.plan_day_id===p.id) }
+    setMealsByDate(by)
   }
 
-  const addWeightReal = async () => {
-    const val = Number(quickWeight)
-    if (!val) return
-    const today = new Date().toISOString().slice(0,10)
-    const { data: { user } } = await supabase.auth.getUser()
-    if(!user) return
-    await supabase.from('logs_biometrics').insert({ user_id: user.id, date: today, weight_kg: val })
-    setQuickWeight('')
-    setLatestWeight(val)
-    alert('Weight logged')
+  async function ensureWorkoutToday(){
+    const { data:{ user } } = await supabase.auth.getUser()
+    if(!user){ notify('error','Sign in first'); return }
+    const wd = await supabase.from('workout_days').select('id').eq('user_id', user.id).eq('date', today).maybeSingle()
+    let wdId = (wd.data as any)?.id as string|undefined
+    if(!wdId){
+      const ins = await supabase.from('workout_days').insert({ user_id:user.id, date:today }).select('id').maybeSingle()
+      wdId = (ins.data as any)?.id
+    }
+    if(!wdId){ notify('error','Could not create workout day'); return }
+    const has = await supabase.from('workout_blocks').select('id').eq('workout_day_id', wdId)
+    if(!has.error && (has.data||[]).length===0){
+      const defs = [
+        { kind:'warmup',  title:'Warm-up',           details:'5–8 min easy walk + mobility' },
+        { kind:'circuit', title:'Bodyweight Squats', details:'3×12' },
+        { kind:'circuit', title:'Push-ups (incline)',details:'3×10' },
+        { kind:'circuit', title:'Row (band)',        details:'3×12' },
+        { kind:'cooldown',title:'Cooldown',          details:'Stretch 5 min' },
+      ]
+      await supabase.from('workout_blocks').insert(defs.map(b=>({...b, workout_day_id: wdId})))
+    }
+    notify('success','Workout generated for today')
+    const wds = await supabase.from('workout_days').select('id,date').eq('user_id', user.id).in('date', weekDates)
+    const wdIds2 = ((wds.data||[]) as WorkoutDay[]).map(w=>w.id)
+    const blocks2 = wdIds2.length ? await supabase.from('workout_blocks').select('*').in('workout_day_id', wdIds2) : {data:[]}
+    const by: Record<string,WorkoutBlock[]> = {}; weekDates.forEach(d=>by[d]=[])
+    for(const w of (wds.data||[]) as WorkoutDay[]){ by[w.date] = (blocks2.data||[] as WorkoutBlock[]).filter(b=>b.workout_day_id===w.id) }
+    setBlocksByDate(by)
   }
 
-  const gapText = useMemo(()=>{
-    if(!profile) return ''
-    const current = latestWeight ?? profile.weight_kg
-    if (!current || !profile.target_weight_kg) return ''
-    const diffNum = Number((Number(current) - Number(profile.target_weight_kg)).toFixed(1))
-    if (diffNum === 0) return 'At goal'
-    return diffNum > 0 ? `${diffNum} kg above goal` : `${Math.abs(diffNum)} kg below goal`
-  }, [profile, latestWeight])
-
-  const signUp = async() => {
-    const { error } = await supabase.auth.signUp({ email: emailState, password: pwd })
-    if (error) alert(error.message); else router.push('/onboarding')
-  }
-  const signIn = async() => {
-    const { error } = await supabase.auth.signInWithPassword({ email: emailState, password: pwd })
-    if (error) alert(error.message); else router.push('/onboarding')
+  /* ---------- weight logging ---------- */
+  async function addWeight(){
+    const kg = parseFloat(weightInput)
+    if(!kg || isNaN(kg)){ notify('error','Enter weight in kg'); return }
+    const { data:{ user } } = await supabase.auth.getUser()
+    if(!user){ notify('error','Sign in first'); return }
+    await supabase.from('weights').insert({ user_id:user.id, date: today, kg })
+    setWeightInput('')
+    setLatestWeight(kg)
+    notify('success','Weight logged')
   }
 
-  if (!user) {
-    return (
-      <div className="grid">
-        <div className="card">
-          <h2>Welcome to HouseholdHQ</h2>
-          <div className="grid grid-2">
-            <input className="input" placeholder="Email" value={emailState} onChange={e=>setEmailState(e.target.value)} />
-            <input className="input" placeholder="Password" type="password" value={pwd} onChange={e=>setPwd(e.target.value)} />
-            <button className="button" onClick={signIn}>Sign in</button>
-            <button className="button" onClick={signUp}>Sign up</button>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  /* ---------- computed ---------- */
+  const todayMeals = mealsByDate[today] || []
+  const todayBlocks = blocksByDate[today] || []
+  const todayEvents = (eventsByDate[today] || []).slice(0,3)
+  const greeting = (() => {
+    const h = new Date().getHours()
+    if(h<12) return 'Good Morning'
+    if(h<17) return 'Good Afternoon'
+    return 'Good Evening'
+  })()
+  const goalDelta = (latestWeight!=null && profile?.goal_weight!=null)
+    ? (Math.round((latestWeight - profile.goal_weight)*10)/10)
+    : null
+  const daysToGo = profile?.goal_date ? Math.max(0, Math.ceil((+new Date(profile.goal_date+'T00:00:00') - +new Date())/86400000)) : null
 
-  // Authenticated dashboard
+  /* ---------- render ---------- */
   return (
-    <div className="grid">
-      <div className="card">
-        <h2>Dashboard</h2>
-        <small className="muted">At a glance: upcoming events, today’s plan, and your progress.</small>
+    <div className="container" style={{display:'grid', gap:16, paddingBottom:84}}>
+      {/* Title */}
+      <div className="text-center">
+        <div className="app-brand">HouseholdHQ</div>
       </div>
 
-      <div className="grid grid-3">
-        <div className="card">
-          <h3>Calendar (next 14 days)</h3>
-          {events.length === 0 ? <p>No events yet. Add some in Calendar.</p> : (
-            <ul>
-              {events.slice(0,6).map(e => (
-                <li key={e.id}>
-                  <b>{new Date(e.start_ts).toLocaleDateString()}</b> — {e.title} {e.all_day ? '(All day)' : ''}
-                </li>
-              ))}
-            </ul>
-          )}
+      {/* Greeting & Goal card */}
+      <h1 className="page-title">{greeting} {profile?.full_name ? profile.full_name : ''}</h1>
+
+      <section className="panel goal-card">
+        <div className="goal-row">
+          <div>Your Goal</div>
+          <div className="goal-val">{profile?.goal_weight!=null ? `${profile.goal_weight} Kg` : '—'}</div>
         </div>
-        <div className="card">
-          <h3>Today’s Diet</h3>
-          {meals.length === 0 ? <>
-            <p>No plan yet.</p>
-            <button className="button" onClick={()=>router.push('/today')}>Generate</button>
-          </> : (
-            <div className="grid">
-              {meals.map(m => (
-                <div key={m.id} className="card" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <div><b>{m.meal_type}</b> — {m.recipe_name} <small className="muted">{m.kcal} kcal</small></div>
-                  <div style={{display:'flex',gap:8}}>
-                    <button className="button" onClick={()=>markMealEaten(m,100)}>Ate</button>
-                    <button className="button" onClick={()=>markMealEaten(m,50)}>50%</button>
-                  </div>
-                </div>
-              ))}
+        <div className="goal-row">
+          <div>Target Date</div>
+          <div className="goal-val">{profile?.goal_date ? new Date(profile.goal_date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}) : '—'}</div>
+        </div>
+        <div className="goal-row">
+          <div>Days to go</div>
+          <div className="goal-val">{daysToGo!=null ? daysToGo : '—'}</div>
+        </div>
+        <div className="goal-diff">
+          {goalDelta!=null ? `${Math.abs(goalDelta)} Kg ${goalDelta>0?'above':'below'} goal` : '—'}
+        </div>
+      </section>
+
+      {/* Tabs */}
+      <div className="chips">
+        <button className={`chip ${tab==='today'?'on':''}`} onClick={()=>setTab('today')}>Today</button>
+        <button className={`chip ${tab==='week'?'on':''}`} onClick={()=>{ setTab('week'); setSelDay(weekDates[0]) }}>Week</button>
+      </div>
+
+      {tab==='today' ? (
+        <>
+          <div className="muted text-center">Here’s how your today looks like</div>
+
+          {/* Calendar Today */}
+          <section className="panel">
+            <div className="section-title">Today’s Calendar</div>
+            {todayEvents.length===0 ? <div className="muted">No events.</div> : (
+              <ul className="list">
+                {todayEvents.map(ev=>(
+                  <li key={ev.id} className="list-row">
+                    <div>{ev.title}</div>
+                    <div className="time">{timeRange(ev.start_time, ev.end_time)}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Diet Today */}
+          <section className="panel">
+            <div className="section-title">Today’s Diet</div>
+            {todayMeals.length===0 ? (
+              <>
+                <div className="muted">No plan yet.</div>
+                <button className="button" onClick={ensureDietToday} style={{marginTop:8}}>Generate</button>
+              </>
+            ) : (
+              <ul className="list">
+                {todayMeals.map(m=>(
+                  <li key={m.id} className="list-row">
+                    <div>{mealTag(m.meal_type)}</div>
+                    <div className="time">{MEAL_TIME[m.meal_type] || '—'}</div>
+                    <div className="muted" style={{gridColumn:'1 / -1'}}>{m.recipe_name||'TBD'}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Workout Today */}
+          <section className="panel">
+            <div className="section-title">Today’s Workout</div>
+            {todayBlocks.length===0 ? (
+              <>
+                <div className="muted">No plan yet.</div>
+                <button className="button" onClick={ensureWorkoutToday} style={{marginTop:8}}>Generate</button>
+              </>
+            ) : (
+              <ul className="list">
+                {todayBlocks.map(b=>(
+                  <li key={b.id} className="list-row">
+                    <div>{b.title || b.kind || 'Block'}</div>
+                    <div className="muted" style={{gridColumn:'1 / -1'}}>{b.details||''}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Grocery snapshot */}
+          <section className="panel">
+            <div className="section-title">Your Grocery list</div>
+            {grocery.length===0 ? <div className="muted">Empty.</div> : (
+              <ul className="list">
+                {grocery.slice(0,6).map(it=>(
+                  <li key={it.id} className="list-row">
+                    <div>{it.name}</div>
+                    <div className="muted">{it.quantity??''} {it.unit??''}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Log weight */}
+          <section className="panel">
+            <div className="section-title">Log weight</div>
+            <div className="weight-row">
+              <input className="pill-input" placeholder="Log weight (kg)" inputMode="decimal" value={weightInput} onChange={e=>setWeightInput(e.target.value)} />
+              <button className="button" onClick={addWeight}>Add</button>
             </div>
-          )}
-        </div>
-        <div className="card">
-          <h3>Today’s Workout</h3>
-          {workout.length === 0 ? <>
-            <p>No workout yet.</p>
-            <button className="button" onClick={()=>router.push('/today')}>Generate</button>
-          </> : (
-            <ul>
-              {workout.map(b => <li key={b.id}><b>{b.type}</b></li>)}
-            </ul>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-3">
-        <div className="card">
-          <h3>Grocery</h3>
-          {groceries.length === 0 ? <p>List is empty. Add items on Grocery tab or from Today’s plan.</p> : (
-            <ul>{groceries.map(i => <li key={i.id}>{i.name} <small className="muted">{[i.qty,i.unit].filter(Boolean).join(' ')}</small></li>)}</ul>
-          )}
-          <button className="button" onClick={()=>router.push('/grocery')}>Open Grocery</button>
-        </div>
-        <div className="card">
-          <h3>Goal tracking</h3>
-          <p><b>Current:</b> {latestWeight ?? profile?.weight_kg ?? '—'} kg</p>
-          <p><b>Target:</b> {profile?.target_weight_kg ?? '—'} kg</p>
-          <p>{gapText}</p>
-          <div className="grid grid-2">
-            <input className="input" placeholder="Log weight (kg)" value={quickWeight} onChange={e=>setQuickWeight(e.target.value)} />
-            <button className="button" onClick={addWeightReal}>Add</button>
+          </section>
+        </>
+      ) : (
+        <>
+          {/* Week date chips */}
+          <div className="chips">
+            {weekDates.map(d=>(
+              <button key={d} className={`chip ${selDay===d?'on':''}`} onClick={()=>setSelDay(d)}>
+                {new Date(d+'T00:00:00').toLocaleDateString(undefined,{weekday:'short', day:'2-digit'})}
+              </button>
+            ))}
           </div>
-        </div>
-        <div className="card">
-          <h3>Tune plan</h3>
-          <p>Diet & exercise are adjusted by your goals and conditions. Regenerate on the Today tab when goals change.</p>
-          <button className="button" onClick={()=>router.push('/today')}>Regenerate Today</button>
-        </div>
-      </div>
+
+          <div className="grid-2">
+            {/* Week Calendar */}
+            <section className="panel">
+              <div className="section-title">Calendar</div>
+              {!(eventsByDate[selDay]||[]).length ? <div className="muted">No events.</div> : (
+                <ul className="list">
+                  {(eventsByDate[selDay]||[]).map(ev=>(
+                    <li key={ev.id} className="list-row">
+                      <div>{ev.title}</div>
+                      <div className="time">{timeRange(ev.start_time, ev.end_time)}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {/* Week Diet */}
+            <section className="panel">
+              <div className="section-title">Diet</div>
+              {!(mealsByDate[selDay]||[]).length ? <div className="muted">No plan.</div> : (
+                <ul className="list">
+                  {(mealsByDate[selDay]||[]).map(m=>(
+                    <li key={m.id} className="list-row">
+                      <div>{mealTag(m.meal_type)}</div>
+                      <div className="muted" style={{gridColumn:'1 / -1'}}>{m.recipe_name||'TBD'}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {/* Week Exercise */}
+            <section className="panel">
+              <div className="section-title">Exercise</div>
+              {!(blocksByDate[selDay]||[]).length ? <div className="muted">No plan.</div> : (
+                <ul className="list">
+                  {(blocksByDate[selDay]||[]).map(b=>(
+                    <li key={b.id} className="list-row">
+                      <div>{b.title || b.kind || 'Block'}</div>
+                      <div className="muted" style={{gridColumn:'1 / -1'}}>{b.details||''}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {/* Week Grocery (current list) */}
+            <section className="panel">
+              <div className="section-title">Your Grocery list</div>
+              {grocery.length===0 ? <div className="muted">Empty.</div> : (
+                <ul className="list">
+                  {grocery.slice(0,6).map(it=>(
+                    <li key={it.id} className="list-row">
+                      <div>{it.name}</div>
+                      <div className="muted">{it.quantity??''} {it.unit??''}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+        </>
+      )}
     </div>
   )
 }
