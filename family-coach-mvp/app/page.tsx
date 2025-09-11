@@ -1,22 +1,41 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createClient as createSupabaseClient, Session } from '@supabase/supabase-js'
 import styles from './home/home-ui.module.css'
 
 type Meal = { id: string; plan_day_id: string; meal_type: string; recipe_name: string | null }
 type WorkoutBlock = { id: string; workout_day_id: string; kind?: string|null; title?: string|null; details?: string|null }
+type PlanDay = { id: string; date: string }
+type WorkoutDay = { id: string; date: string }
 type CalEvent = { id:string; title:string; date:string; start_time?:string|null; end_time?:string|null }
 type GroceryItem = { id:string; name:string; quantity?:number|null; unit?:string|null; done?:boolean|null }
 type Profile = { full_name?:string|null; goal_weight?:number|null; target_weight?:number|null; goal_date?:string|null; target_date?:string|null }
 
-const ymd = (d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+const pad = (n:number)=>String(n).padStart(2,'0')
+const ymd = (d:Date)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
 const today = ymd(new Date())
 const MEAL_TIME: Record<string,string> = {
-  breakfast: '08:00–09:00', snack: '11:00–12:00', lunch: '13:00–14:00', snack_pm: '16:00–17:00', dinner: '19:00–20:00'
+  breakfast: '08:00–09:00',
+  snack: '11:00–12:00',
+  lunch: '13:00–14:00',
+  snack_pm: '16:00–17:00',
+  dinner: '19:00–20:00'
 }
 const mealLabel = (t?:string)=>{ const v=(t||'').toLowerCase(); if(v.includes('break'))return'Breakfast'; if(v.includes('lunch'))return'Lunch'; if(v.includes('dinner'))return'Dinner'; if(v.includes('snack'))return'Snack'; return'Meal' }
 const timeRange = (a?:string|null,b?:string|null)=> (a||b)?`${(a||'').slice(0,5)} - ${(b||'').slice(0,5)}`:''
+
+function mondayOfWeek(d: Date){
+  const c = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const day = c.getDay() || 7
+  if(day>1) c.setDate(c.getDate()-(day-1))
+  return c
+}
+function weekDatesFrom(d: Date){
+  const m = mondayOfWeek(d); const out: string[]=[]
+  for(let i=0;i<7;i++){ const dd = new Date(m); dd.setDate(m.getDate()+i); out.push(ymd(dd)) }
+  return out
+}
 
 export default function HomePage(){
   const supabase = useMemo(()=>createSupabaseClient(
@@ -24,47 +43,125 @@ export default function HomePage(){
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
   ), [])
 
-  const [loading, setLoading] = useState(true)
+  const [authChecked, setAuthChecked] = useState(false)
+  const [userId, setUserId] = useState<string|null>(null)
+  const [loading, setLoading] = useState(false)
+
   const [profile, setProfile] = useState<Profile|null>(null)
   const [latestWeight, setLatestWeight] = useState<number|null>(null)
   const [eventsByDate, setEventsByDate] = useState<Record<string,CalEvent[]>>({})
   const [mealsByDate, setMealsByDate] = useState<Record<string,Meal[]>>({})
   const [blocksByDate, setBlocksByDate] = useState<Record<string,WorkoutBlock[]>>({})
   const [grocery, setGrocery] = useState<GroceryItem[]>([])
-  const [authMissing, setAuthMissing] = useState(false)
 
   function notify(kind:'success'|'error', msg:string){
     if(typeof window!=='undefined' && (window as any).toast){ (window as any).toast(kind,msg) }
   }
 
-  useEffect(()=>{ (async()=>{
+  // Try to detect an events table that exists (or at least responds)
+  async function detectEventsTable(): Promise<string|null>{
+    const candidates = ['events','calendar_events','family_events','household_events']
+    for(const t of candidates){
+      const r = await supabase.from(t).select('id').limit(1)
+      // If not a "relation missing" error, we consider it usable (RLS/empty is fine)
+      if(!r.error || (r.error as any)?.code !== '42P01') return t
+    }
+    return null
+  }
+
+  async function loadAll(uid:string){
+    setLoading(true)
     try{
-      const { data:{ session } } = await supabase.auth.getSession()
-      if(!session){ setAuthMissing(true); setLoading(false); return }
+      // PROFILE (tolerate goal_* and target_*)
+      const prof = await supabase
+        .from('profiles')
+        .select('full_name, goal_weight, target_weight, goal_date, target_date')
+        .eq('id', uid).maybeSingle()
+      setProfile((prof.data||null) as Profile)
 
-      const res = await fetch('/api/home/summary', {
-        headers: { Authorization: `Bearer ${session.access_token}` }
-      })
-      if(!res.ok){
-        console.warn('summary api failed', await res.text())
-        setLoading(false)
-        return
+      // LATEST WEIGHT
+      const w = await supabase
+        .from('weights').select('kg').eq('user_id', uid)
+        .order('date',{ascending:false}).limit(1).maybeSingle()
+      setLatestWeight((w.data as any)?.kg ?? null)
+
+      // EVENTS (next 14 days)
+      const evTable = await detectEventsTable()
+      const evMap: Record<string,CalEvent[]> = {}
+      if(evTable){
+        const start = today
+        const end = ymd(new Date(new Date().setDate(new Date().getDate()+14)))
+        const r = await supabase.from(evTable)
+          .select('id,title,name,date,start_time,end_time,starts_at,ends_at')
+          .gte('date', start).lte('date', end)
+        if(!r.error && r.data){
+          for(const row of r.data as any[]){
+            const d = row.date
+            const ev: CalEvent = {
+              id: String(row.id),
+              title: row.title || row.name || 'Event',
+              date: d,
+              start_time: row.start_time || (row.starts_at ? String(row.starts_at).slice(11,16) : null),
+              end_time: row.end_time || (row.ends_at ? String(row.ends_at).slice(11,16) : null),
+            }
+            ;(evMap[d] ||= []).push(ev)
+          }
+          Object.values(evMap).forEach(list => list.sort((a,b)=>(a.start_time||'').localeCompare(b.start_time||'')))
+        }
       }
-      const json = await res.json()
+      setEventsByDate(evMap)
 
-      setProfile(json.profile || null)
-      setLatestWeight(json.latestWeight ?? null)
-      setEventsByDate(json.eventsByDate || {})
-      setMealsByDate(json.mealsByDate || {})
-      setBlocksByDate(json.blocksByDate || {})
-      setGrocery(json.grocery || [])
-    } catch(e){
-      console.warn(e)
+      // MEALS & WORKOUTS (this week)
+      const week = weekDatesFrom(new Date())
+
+      const pds = await supabase.from('plan_days').select('id,date').eq('user_id', uid).in('date', week)
+      const pdIds = ((pds.data||[]) as PlanDay[]).map(p=>p.id)
+      const meals = pdIds.length ? await supabase.from('meals').select('id,plan_day_id,meal_type,recipe_name').in('plan_day_id', pdIds) : {data:[]}
+      const byMeals: Record<string,Meal[]> = {}; week.forEach(d=>byMeals[d]=[])
+      for(const p of (pds.data||[]) as PlanDay[]){ byMeals[p.date] = (meals.data||[] as Meal[]).filter(m=>m.plan_day_id===p.id) }
+      setMealsByDate(byMeals)
+
+      const wds = await supabase.from('workout_days').select('id,date').eq('user_id', uid).in('date', week)
+      const wdIds = ((wds.data||[]) as WorkoutDay[]).map(w=>w.id)
+      const blocks = wdIds.length ? await supabase.from('workout_blocks').select('id,workout_day_id,kind,title,details').in('workout_day_id', wdIds) : {data:[]}
+      const byBlocks: Record<string,WorkoutBlock[]> = {}; week.forEach(d=>byBlocks[d]=[])
+      for(const w of (wds.data||[]) as WorkoutDay[]){ byBlocks[w.date] = (blocks.data||[] as WorkoutBlock[]).filter(b=>b.workout_day_id===w.id) }
+      setBlocksByDate(byBlocks)
+
+      // GROCERY (support both names)
+      let g:any = await supabase.from('grocery_items').select('id,name,quantity,unit,done').eq('user_id', uid).order('name')
+      if(g.error){ g = await supabase.from('shopping_items').select('id,name,quantity,unit,done').eq('user_id', uid).order('name') }
+      setGrocery((g.data||[]) as GroceryItem[])
+    }catch(e){
+      console.warn('home load error', e)
       notify('error','Failed to load dashboard')
-    } finally {
+    }finally{
       setLoading(false)
     }
-  })() }, [supabase])
+  }
+
+  // Robust auth bootstrapping (no hard-stopping the page)
+  useEffect(()=>{ 
+    let unsub: { unsubscribe: ()=>void } | undefined
+    ;(async()=>{
+      // Try current session
+      const { data:{ session } } = await supabase.auth.getSession()
+      const currUser = session?.user ?? (await supabase.auth.getUser()).data.user ?? null
+      if(currUser?.id){
+        setUserId(currUser.id)
+        await loadAll(currUser.id)
+      }
+      // Subscribe for late-arriving session (first paint, refreshes, etc.)
+      unsub = supabase.auth.onAuthStateChange((_event, s: Session | null)=>{
+        const id = s?.user?.id || null
+        setUserId(id)
+        if(id) loadAll(id)
+      }).data?.subscription
+      setAuthChecked(true)
+    })()
+    return ()=>{ try{unsub?.unsubscribe()}catch{} }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const greeting = (() => { const h=new Date().getHours(); return h<12?'Good Morning':h<17?'Good Afternoon':'Good Evening' })()
   const useGoalWeight = (profile?.goal_weight ?? profile?.target_weight) ?? null
@@ -77,14 +174,16 @@ export default function HomePage(){
   const todayBlocks = blocksByDate[today] || []
   const todayEvents = (eventsByDate[today] || []).slice(0,3)
 
-  if (authMissing) {
-    return <div className="container" style={{paddingBottom:84}}><div className="muted">Please sign in.</div></div>
-  }
-
   return (
     <div className="container" style={{display:'grid', gap:16, paddingBottom:84}}>
       <div className={styles.appBrand}>HouseholdHQ</div>
       <h1 className={styles.h1}>{greeting}</h1>
+
+      {!userId && authChecked && (
+        <div className="panel" style={{color:'var(--muted)'}}>
+          You’re not signed in. Sign in from the header to load your data.
+        </div>
+      )}
 
       <section className={`panel ${styles.goalCard}`}>
         <div className={styles.goalRow}><div>Your Goal</div><div className={styles.goalVal}>{useGoalWeight!=null ? `${useGoalWeight} Kg` : '—'}</div></div>
@@ -93,8 +192,9 @@ export default function HomePage(){
         <div className={styles.goalDiff}>{goalDelta!=null ? `${Math.abs(goalDelta)} Kg ${goalDelta>0?'above':'below'} goal` : '—'}</div>
       </section>
 
-      {loading ? <div className="muted">Loading…</div> : (
+      {(loading && userId) ? <div className="muted">Loading…</div> : (
         <>
+          {/* Today’s Calendar */}
           <section className="panel">
             <div className={styles.sectionTitle}>Today’s Calendar</div>
             {todayEvents.length===0 ? <div className="muted">No events.</div> : (
@@ -109,6 +209,7 @@ export default function HomePage(){
             )}
           </section>
 
+          {/* Today’s Diet */}
           <section className="panel">
             <div className={styles.sectionTitle}>Today’s Diet</div>
             {todayMeals.length===0 ? <div className="muted">No plan yet.</div> : (
@@ -124,6 +225,7 @@ export default function HomePage(){
             )}
           </section>
 
+          {/* Today’s Exercise */}
           <section className="panel">
             <div className={styles.sectionTitle}>Today’s Exercise</div>
             {todayBlocks.length===0 ? <div className="muted">No plan yet.</div> : (
@@ -138,6 +240,7 @@ export default function HomePage(){
             )}
           </section>
 
+          {/* Grocery snapshot */}
           <section className="panel">
             <div className={styles.sectionTitle}>Your Grocery list</div>
             {grocery.length===0 ? <div className="muted">Empty.</div> : (
