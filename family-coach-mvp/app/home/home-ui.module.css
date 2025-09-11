@@ -1,28 +1,32 @@
-:global{
-  .app-brand{ font-weight:800; text-align:center; opacity:.85; }
+/* Local wrapper so we can safely scope styles */
+.home {}
 
-  /* Panels already styled across app via .panel / .card; add small tweaks for home */
-  .goal-card{ display:grid; gap:8px; }
-  .goal-row{ display:flex; align-items:center; justify-content:space-between; font-size:16px; }
-  .goal-val{ font-weight:800; font-size:18px; }
-  .goal-diff{ text-align:center; font-weight:800; margin-top:4px; }
+/* Goal card */
+.goalCard { display: grid; gap: 8px; }
+.goalRow { display: flex; align-items: center; justify-content: space-between; font-size: 16px; }
+.goalVal { font-weight: 800; font-size: 18px; }
+.goalDiff { text-align: center; font-weight: 800; margin-top: 4px; }
 
-  .section-title{ font-weight:800; margin-bottom:6px; }
+/* Section headings in panels */
+.sectionTitle { font-weight: 800; margin-bottom: 6px; }
 
-  .list{ display:grid; gap:8px; }
-  .list-row{
-    display:grid; grid-template-columns: 1fr auto; gap:4px;
-    padding:8px 0; border-bottom:1px solid var(--card-border);
-  }
-  .list-row:last-child{ border-bottom:none; }
-  .list-row .time{ font-size:14px; opacity:.8; align-self:center; }
-
-  .grid-2{ display:grid; gap:12px; grid-template-columns: 1fr; }
-  @media (min-width: 900px){
-    .grid-2{ grid-template-columns: 1fr 1fr; }
-  }
-
-  .text-center{ text-align:center; }
-
-  .weight-row{ display:grid; grid-template-columns: 1fr auto; gap:10px; }
+/* Generic list look inside panels */
+.list { display: grid; gap: 8px; }
+.listRow {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px;
+  padding: 8px 0; border-bottom: 1px solid var(--card-border);
 }
+.listRow:last-child { border-bottom: none; }
+.time { font-size: 14px; opacity: .8; align-self: center; }
+
+/* Two-column grid on wide screens only */
+.grid2 { display: grid; gap: 12px; grid-template-columns: 1fr; }
+@media (min-width: 900px){
+  .grid2 { grid-template-columns: 1fr 1fr; }
+}
+
+/* Weight row */
+.weightRow { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+
+/* Brand (uses your existing global vars) */
+.appBrand { font-weight: 800; text-align: center; opacity: .85; }
