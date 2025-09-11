@@ -1,0 +1,28 @@
+:global{
+  .app-brand{ font-weight:800; text-align:center; opacity:.85; }
+
+  /* Panels already styled across app via .panel / .card; add small tweaks for home */
+  .goal-card{ display:grid; gap:8px; }
+  .goal-row{ display:flex; align-items:center; justify-content:space-between; font-size:16px; }
+  .goal-val{ font-weight:800; font-size:18px; }
+  .goal-diff{ text-align:center; font-weight:800; margin-top:4px; }
+
+  .section-title{ font-weight:800; margin-bottom:6px; }
+
+  .list{ display:grid; gap:8px; }
+  .list-row{
+    display:grid; grid-template-columns: 1fr auto; gap:4px;
+    padding:8px 0; border-bottom:1px solid var(--card-border);
+  }
+  .list-row:last-child{ border-bottom:none; }
+  .list-row .time{ font-size:14px; opacity:.8; align-self:center; }
+
+  .grid-2{ display:grid; gap:12px; grid-template-columns: 1fr; }
+  @media (min-width: 900px){
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+  }
+
+  .text-center{ text-align:center; }
+
+  .weight-row{ display:grid; grid-template-columns: 1fr auto; gap:10px; }
+}
