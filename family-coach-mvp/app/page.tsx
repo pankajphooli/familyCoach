@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
-import './home/home-ui.module.css' // scoped (uses :global)
+import styles from './home/home-ui.module.css'   // <-- fixed import (module)
 
 type Meal = { id: string; plan_day_id: string; meal_type: string; recipe_name: string | null }
 type WorkoutBlock = { id: string; workout_day_id: string; kind?: string | null; title?: string | null; details?: string | null }
@@ -13,8 +13,8 @@ type GroceryItem = { id: string; name: string; quantity?: number|null; unit?: st
 
 type Profile = {
   full_name?: string|null
-  goal_weight?: number|null      // numeric in kg (add this column if missing)
-  goal_date?: string|null        // YYYY-MM-DD (add this column if missing)
+  goal_weight?: number|null
+  goal_date?: string|null
 }
 
 type Tab = 'today' | 'week'
@@ -97,7 +97,7 @@ export default function HomePage(){
     const w = await supabase.from('weights').select('kg').eq('user_id', user.id).order('date',{ascending:false}).limit(1).maybeSingle()
     setLatestWeight((w.data as any)?.kg ?? null)
 
-    // calendar events next 14d (events table tolerant)
+    // calendar events next 14 days across tolerant table names
     const start = today, end = ymd(new Date(new Date().setDate(new Date().getDate()+14)))
     const evTables = ['events','calendar_events','family_events','household_events']
     const evMap: Record<string,CalEvent[]> = {}
@@ -161,12 +161,12 @@ export default function HomePage(){
       ]
       await supabase.from('meals').insert(defaults.map(m=>({...m, plan_day_id: pdId})))
     }
-    notify('success','Diet generated for today'); // refresh
-    const pd2 = await supabase.from('plan_days').select('id,date').eq('user_id', user.id).in('date', weekDates)
-    const pdIds2 = ((pd2.data||[]) as PlanDay[]).map(p=>p.id)
+    notify('success','Diet generated for today')
+    const pds = await supabase.from('plan_days').select('id,date').eq('user_id', user.id).in('date', weekDates)
+    const pdIds2 = ((pds.data||[]) as PlanDay[]).map(p=>p.id)
     const meals2 = pdIds2.length ? await supabase.from('meals').select('*').in('plan_day_id', pdIds2) : {data:[]}
     const by: Record<string,Meal[]> = {}; weekDates.forEach(d=>by[d]=[])
-    for(const p of (pd2.data||[]) as PlanDay[]){ by[p.date] = (meals2.data||[] as Meal[]).filter(m=>m.plan_day_id===p.id) }
+    for(const p of (pds.data||[]) as PlanDay[]){ by[p.date] = (meals2.data||[] as Meal[]).filter(m=>m.plan_day_id===p.id) }
     setMealsByDate(by)
   }
 
@@ -202,14 +202,19 @@ export default function HomePage(){
 
   /* ---------- weight logging ---------- */
   async function addWeight(){
-    const kg = parseFloat(weightInput)
-    if(!kg || isNaN(kg)){ notify('error','Enter weight in kg'); return }
-    const { data:{ user } } = await supabase.auth.getUser()
-    if(!user){ notify('error','Sign in first'); return }
-    await supabase.from('weights').insert({ user_id:user.id, date: today, kg })
-    setWeightInput('')
-    setLatestWeight(kg)
-    notify('success','Weight logged')
+    try{
+      const kg = parseFloat(weightInput)
+      if(!kg || isNaN(kg)){ notify('error','Enter weight in kg'); return }
+      const { data:{ user } } = await supabase.auth.getUser()
+      if(!user){ notify('error','Sign in first'); return }
+      await supabase.from('weights').insert({ user_id:user.id, date: today, kg })
+      setWeightInput('')
+      setLatestWeight(kg)
+      notify('success','Weight logged')
+    }catch(e){
+      console.warn(e)
+      notify('error','Could not save weight')
+    }
   }
 
   /* ---------- computed ---------- */
@@ -223,35 +228,35 @@ export default function HomePage(){
     return 'Good Evening'
   })()
   const goalDelta = (latestWeight!=null && profile?.goal_weight!=null)
-    ? (Math.round((latestWeight - profile.goal_weight)*10)/10)
+    ? (Math.round((latestWeight - (profile.goal_weight as number))*10)/10)
     : null
-  const daysToGo = profile?.goal_date ? Math.max(0, Math.ceil((+new Date(profile.goal_date+'T00:00:00') - +new Date())/86400000)) : null
+  const daysToGo = profile?.goal_date ? Math.max(0, Math.ceil((+new Date((profile.goal_date as string)+'T00:00:00') - +new Date())/86400000)) : null
 
   /* ---------- render ---------- */
   return (
-    <div className="container" style={{display:'grid', gap:16, paddingBottom:84}}>
-      {/* Title */}
+    <div className={`container ${styles.home}`} style={{display:'grid', gap:16, paddingBottom:84}}>
+      {/* Brand */}
       <div className="text-center">
-        <div className="app-brand">HouseholdHQ</div>
+        <div className={styles.appBrand}>HouseholdHQ</div>
       </div>
 
       {/* Greeting & Goal card */}
       <h1 className="page-title">{greeting} {profile?.full_name ? profile.full_name : ''}</h1>
 
-      <section className="panel goal-card">
-        <div className="goal-row">
+      <section className={`panel ${styles.goalCard}`}>
+        <div className={styles.goalRow}>
           <div>Your Goal</div>
-          <div className="goal-val">{profile?.goal_weight!=null ? `${profile.goal_weight} Kg` : '—'}</div>
+          <div className={styles.goalVal}>{profile?.goal_weight!=null ? `${profile.goal_weight} Kg` : '—'}</div>
         </div>
-        <div className="goal-row">
+        <div className={styles.goalRow}>
           <div>Target Date</div>
-          <div className="goal-val">{profile?.goal_date ? new Date(profile.goal_date+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}) : '—'}</div>
+          <div className={styles.goalVal}>{profile?.goal_date ? new Date((profile.goal_date as string)+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}) : '—'}</div>
         </div>
-        <div className="goal-row">
+        <div className={styles.goalRow}>
           <div>Days to go</div>
-          <div className="goal-val">{daysToGo!=null ? daysToGo : '—'}</div>
+          <div className={styles.goalVal}>{daysToGo!=null ? daysToGo : '—'}</div>
         </div>
-        <div className="goal-diff">
+        <div className={styles.goalDiff}>
           {goalDelta!=null ? `${Math.abs(goalDelta)} Kg ${goalDelta>0?'above':'below'} goal` : '—'}
         </div>
       </section>
@@ -268,13 +273,13 @@ export default function HomePage(){
 
           {/* Calendar Today */}
           <section className="panel">
-            <div className="section-title">Today’s Calendar</div>
+            <div className={styles.sectionTitle}>Today’s Calendar</div>
             {todayEvents.length===0 ? <div className="muted">No events.</div> : (
-              <ul className="list">
+              <ul className={styles.list}>
                 {todayEvents.map(ev=>(
-                  <li key={ev.id} className="list-row">
+                  <li key={ev.id} className={styles.listRow}>
                     <div>{ev.title}</div>
-                    <div className="time">{timeRange(ev.start_time, ev.end_time)}</div>
+                    <div className={styles.time}>{timeRange(ev.start_time, ev.end_time)}</div>
                   </li>
                 ))}
               </ul>
@@ -283,18 +288,18 @@ export default function HomePage(){
 
           {/* Diet Today */}
           <section className="panel">
-            <div className="section-title">Today’s Diet</div>
+            <div className={styles.sectionTitle}>Today’s Diet</div>
             {todayMeals.length===0 ? (
               <>
                 <div className="muted">No plan yet.</div>
                 <button className="button" onClick={ensureDietToday} style={{marginTop:8}}>Generate</button>
               </>
             ) : (
-              <ul className="list">
+              <ul className={styles.list}>
                 {todayMeals.map(m=>(
-                  <li key={m.id} className="list-row">
+                  <li key={m.id} className={styles.listRow}>
                     <div>{mealTag(m.meal_type)}</div>
-                    <div className="time">{MEAL_TIME[m.meal_type] || '—'}</div>
+                    <div className={styles.time}>{MEAL_TIME[m.meal_type] || '—'}</div>
                     <div className="muted" style={{gridColumn:'1 / -1'}}>{m.recipe_name||'TBD'}</div>
                   </li>
                 ))}
@@ -304,16 +309,16 @@ export default function HomePage(){
 
           {/* Workout Today */}
           <section className="panel">
-            <div className="section-title">Today’s Workout</div>
+            <div className={styles.sectionTitle}>Today’s Workout</div>
             {todayBlocks.length===0 ? (
               <>
                 <div className="muted">No plan yet.</div>
                 <button className="button" onClick={ensureWorkoutToday} style={{marginTop:8}}>Generate</button>
               </>
             ) : (
-              <ul className="list">
+              <ul className={styles.list}>
                 {todayBlocks.map(b=>(
-                  <li key={b.id} className="list-row">
+                  <li key={b.id} className={styles.listRow}>
                     <div>{b.title || b.kind || 'Block'}</div>
                     <div className="muted" style={{gridColumn:'1 / -1'}}>{b.details||''}</div>
                   </li>
@@ -324,11 +329,11 @@ export default function HomePage(){
 
           {/* Grocery snapshot */}
           <section className="panel">
-            <div className="section-title">Your Grocery list</div>
+            <div className={styles.sectionTitle}>Your Grocery list</div>
             {grocery.length===0 ? <div className="muted">Empty.</div> : (
-              <ul className="list">
+              <ul className={styles.list}>
                 {grocery.slice(0,6).map(it=>(
-                  <li key={it.id} className="list-row">
+                  <li key={it.id} className={styles.listRow}>
                     <div>{it.name}</div>
                     <div className="muted">{it.quantity??''} {it.unit??''}</div>
                   </li>
@@ -339,8 +344,8 @@ export default function HomePage(){
 
           {/* Log weight */}
           <section className="panel">
-            <div className="section-title">Log weight</div>
-            <div className="weight-row">
+            <div className={styles.sectionTitle}>Log weight</div>
+            <div className={styles.weightRow}>
               <input className="pill-input" placeholder="Log weight (kg)" inputMode="decimal" value={weightInput} onChange={e=>setWeightInput(e.target.value)} />
               <button className="button" onClick={addWeight}>Add</button>
             </div>
@@ -357,16 +362,16 @@ export default function HomePage(){
             ))}
           </div>
 
-          <div className="grid-2">
+          <div className={styles.grid2}>
             {/* Week Calendar */}
             <section className="panel">
-              <div className="section-title">Calendar</div>
+              <div className={styles.sectionTitle}>Calendar</div>
               {!(eventsByDate[selDay]||[]).length ? <div className="muted">No events.</div> : (
-                <ul className="list">
+                <ul className={styles.list}>
                   {(eventsByDate[selDay]||[]).map(ev=>(
-                    <li key={ev.id} className="list-row">
+                    <li key={ev.id} className={styles.listRow}>
                       <div>{ev.title}</div>
-                      <div className="time">{timeRange(ev.start_time, ev.end_time)}</div>
+                      <div className={styles.time}>{timeRange(ev.start_time, ev.end_time)}</div>
                     </li>
                   ))}
                 </ul>
@@ -375,11 +380,11 @@ export default function HomePage(){
 
             {/* Week Diet */}
             <section className="panel">
-              <div className="section-title">Diet</div>
+              <div className={styles.sectionTitle}>Diet</div>
               {!(mealsByDate[selDay]||[]).length ? <div className="muted">No plan.</div> : (
-                <ul className="list">
+                <ul className={styles.list}>
                   {(mealsByDate[selDay]||[]).map(m=>(
-                    <li key={m.id} className="list-row">
+                    <li key={m.id} className={styles.listRow}>
                       <div>{mealTag(m.meal_type)}</div>
                       <div className="muted" style={{gridColumn:'1 / -1'}}>{m.recipe_name||'TBD'}</div>
                     </li>
@@ -390,11 +395,11 @@ export default function HomePage(){
 
             {/* Week Exercise */}
             <section className="panel">
-              <div className="section-title">Exercise</div>
+              <div className={styles.sectionTitle}>Exercise</div>
               {!(blocksByDate[selDay]||[]).length ? <div className="muted">No plan.</div> : (
-                <ul className="list">
+                <ul className={styles.list}>
                   {(blocksByDate[selDay]||[]).map(b=>(
-                    <li key={b.id} className="list-row">
+                    <li key={b.id} className={styles.listRow}>
                       <div>{b.title || b.kind || 'Block'}</div>
                       <div className="muted" style={{gridColumn:'1 / -1'}}>{b.details||''}</div>
                     </li>
@@ -405,11 +410,11 @@ export default function HomePage(){
 
             {/* Week Grocery (current list) */}
             <section className="panel">
-              <div className="section-title">Your Grocery list</div>
+              <div className={styles.sectionTitle}>Your Grocery list</div>
               {grocery.length===0 ? <div className="muted">Empty.</div> : (
-                <ul className="list">
+                <ul className={styles.list}>
                   {grocery.slice(0,6).map(it=>(
-                    <li key={it.id} className="list-row">
+                    <li key={it.id} className={styles.listRow}>
                       <div>{it.name}</div>
                       <div className="muted">{it.quantity??''} {it.unit??''}</div>
                     </li>
