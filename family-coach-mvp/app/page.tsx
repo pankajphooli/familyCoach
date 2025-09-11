@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
-import styles from './home/home-ui.module.css'   // <-- fixed import (module)
+import styles from './home/home-ui.module.css'
 
 type Meal = { id: string; plan_day_id: string; meal_type: string; recipe_name: string | null }
 type WorkoutBlock = { id: string; workout_day_id: string; kind?: string | null; title?: string | null; details?: string | null }
@@ -10,18 +10,13 @@ type PlanDay = { id: string; date: string }
 type WorkoutDay = { id: string; date: string }
 type CalEvent = { id: string; title: string; date: string; start_time?: string|null; end_time?: string|null }
 type GroceryItem = { id: string; name: string; quantity?: number|null; unit?: string|null; done?: boolean|null }
-
-type Profile = {
-  full_name?: string|null
-  goal_weight?: number|null
-  goal_date?: string|null
-}
+type Profile = { full_name?: string|null; goal_weight?: number|null; goal_date?: string|null }
 
 type Tab = 'today' | 'week'
 
 /* ---------- helpers ---------- */
 const pad = (n:number)=>String(n).padStart(2,'0')
-function ymd(d: Date){return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
+const ymd = (d:Date)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
 function mondayOfWeek(d: Date){
   const copy = new Date(d.getFullYear(), d.getMonth(), d.getDate())
   const day = copy.getDay() || 7
@@ -40,12 +35,12 @@ const MEAL_TIME: Record<string,string> = {
   snack_pm: '16:00–17:00',
   dinner: '19:00–20:00'
 }
-const mealTag = (mt: string) => {
-  const t = (mt||'').toLowerCase()
-  if(t.includes('break')) return 'Breakfast'
-  if(t.includes('lunch')) return 'Lunch'
-  if(t.includes('dinner')) return 'Dinner'
-  if(t.includes('snack')) return 'Snack'
+const mealLabel = (t?:string)=> {
+  const v=(t||'').toLowerCase()
+  if(v.includes('break')) return 'Breakfast'
+  if(v.includes('lunch')) return 'Lunch'
+  if(v.includes('dinner')) return 'Dinner'
+  if(v.includes('snack')) return 'Snack'
   return 'Meal'
 }
 const timeRange = (a?:string|null,b?:string|null)=> (a||b)?`${(a||'').slice(0,5)} - ${(b||'').slice(0,5)}`:''
@@ -53,27 +48,24 @@ const timeRange = (a?:string|null,b?:string|null)=> (a||b)?`${(a||'').slice(0,5)
 /* ---------- component ---------- */
 export default function HomePage(){
   const supabase = useMemo(()=>{
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-    return createSupabaseClient(url, anon)
+    return createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+    )
   }, [])
 
   const [tab, setTab] = useState<Tab>('today')
   const [selDay, setSelDay] = useState<string>(ymd(new Date()))
   const [weekDates, setWeekDates] = useState<string[]>(weekDatesFrom(new Date()))
 
-  // profile & goal
   const [profile, setProfile] = useState<Profile|null>(null)
   const [latestWeight, setLatestWeight] = useState<number|null>(null)
 
-  // data
   const [eventsByDate, setEventsByDate] = useState<Record<string,CalEvent[]>>({})
   const [mealsByDate, setMealsByDate] = useState<Record<string,Meal[]>>({})
   const [blocksByDate, setBlocksByDate] = useState<Record<string,WorkoutBlock[]>>({})
   const [grocery, setGrocery] = useState<GroceryItem[]>([])
-
-  // weight input
-  const [weightInput, setWeightInput] = useState<string>('')
+  const [weightInput, setWeightInput] = useState('')
 
   const today = ymd(new Date())
 
@@ -82,26 +74,25 @@ export default function HomePage(){
     else { (kind==='error'?console.warn:console.log)(msg) }
   }
 
-  useEffect(()=>{ setWeekDates(weekDatesFrom(new Date())) }, [])
-
+  /* ---------- load everything ---------- */
   useEffect(()=>{ (async()=>{
     const { data:{ user } } = await supabase.auth.getUser()
     if(!user) return
 
-    // profile + name/goal
+    // profile
     const profSel = 'full_name, goal_weight, goal_date'
     const profRes = await supabase.from('profiles').select(profSel).eq('id', user.id).maybeSingle()
     setProfile((profRes.data||null) as Profile)
 
-    // latest weight (weights table: user_id, date, kg)
+    // latest weight
     const w = await supabase.from('weights').select('kg').eq('user_id', user.id).order('date',{ascending:false}).limit(1).maybeSingle()
     setLatestWeight((w.data as any)?.kg ?? null)
 
-    // calendar events next 14 days across tolerant table names
+    // events (next 14 days) — tolerate different table names
     const start = today, end = ymd(new Date(new Date().setDate(new Date().getDate()+14)))
-    const evTables = ['events','calendar_events','family_events','household_events']
-    const evMap: Record<string,CalEvent[]> = {}
-    for(const t of evTables){
+    const tables = ['events','calendar_events','family_events','household_events']
+    const map: Record<string,CalEvent[]> = {}
+    for(const t of tables){
       const r = await supabase.from(t).select('*').gte('date',start).lte('date',end)
       if(!r.error && r.data){
         for(const row of r.data as any[]){
@@ -111,16 +102,15 @@ export default function HomePage(){
             start_time: row.start_time || (row.starts_at?String(row.starts_at).slice(11,16):null),
             end_time: row.end_time || (row.ends_at?String(row.ends_at).slice(11,16):null)
           }
-          ;(evMap[d] ||= []).push(ev)
+          ;(map[d] ||= []).push(ev)
         }
       }
     }
-    Object.values(evMap).forEach(arr=>arr.sort((a,b)=>(a.start_time||'').localeCompare(b.start_time||'')))
-    setEventsByDate(evMap)
+    Object.values(map).forEach(arr=>arr.sort((a,b)=>(a.start_time||'').localeCompare(b.start_time||'')))
+    setEventsByDate(map)
 
-    // meals/workouts for this week
+    // week diet
     const week = weekDatesFrom(new Date())
-    // plan_days / meals
     const pds = await supabase.from('plan_days').select('id,date').eq('user_id', user.id).in('date', week)
     const pdIds = ((pds.data||[]) as PlanDay[]).map(p=>p.id)
     const meals = pdIds.length ? await supabase.from('meals').select('id,plan_day_id,meal_type,recipe_name').in('plan_day_id', pdIds) : {data:[]}
@@ -128,7 +118,7 @@ export default function HomePage(){
     for(const pd of (pds.data||[]) as PlanDay[]){ byMeals[pd.date] = (meals.data||[] as Meal[]).filter(m=>m.plan_day_id===pd.id) }
     setMealsByDate(byMeals)
 
-    // workout_days / workout_blocks
+    // week workouts
     const wds = await supabase.from('workout_days').select('id,date').eq('user_id', user.id).in('date', week)
     const wdIds = ((wds.data||[]) as WorkoutDay[]).map(w=>w.id)
     const blocks = wdIds.length ? await supabase.from('workout_blocks').select('id,workout_day_id,kind,title,details').in('workout_day_id', wdIds) : {data:[]}
@@ -136,12 +126,12 @@ export default function HomePage(){
     for(const wd of (wds.data||[]) as WorkoutDay[]){ byBlocks[wd.date] = (blocks.data||[] as WorkoutBlock[]).filter(b=>b.workout_day_id===wd.id) }
     setBlocksByDate(byBlocks)
 
-    // grocery (current list)
+    // grocery snapshot
     const gr = await supabase.from('grocery_items').select('id,name,quantity,unit,done').eq('user_id', user.id).order('name')
     setGrocery((gr.data||[]) as GroceryItem[])
   })() }, [supabase])
 
-  /* ---------- quick generators (today only, safe-insert) ---------- */
+  /* ---------- “Generate today” helpers ---------- */
   async function ensureDietToday(){
     const { data:{ user } } = await supabase.auth.getUser()
     if(!user){ notify('error','Sign in first'); return }
@@ -161,13 +151,14 @@ export default function HomePage(){
       ]
       await supabase.from('meals').insert(defaults.map(m=>({...m, plan_day_id: pdId})))
     }
-    notify('success','Diet generated for today')
+    // reload meals
     const pds = await supabase.from('plan_days').select('id,date').eq('user_id', user.id).in('date', weekDates)
     const pdIds2 = ((pds.data||[]) as PlanDay[]).map(p=>p.id)
     const meals2 = pdIds2.length ? await supabase.from('meals').select('*').in('plan_day_id', pdIds2) : {data:[]}
     const by: Record<string,Meal[]> = {}; weekDates.forEach(d=>by[d]=[])
     for(const p of (pds.data||[]) as PlanDay[]){ by[p.date] = (meals2.data||[] as Meal[]).filter(m=>m.plan_day_id===p.id) }
     setMealsByDate(by)
+    notify('success','Diet generated for today')
   }
 
   async function ensureWorkoutToday(){
@@ -191,46 +182,26 @@ export default function HomePage(){
       ]
       await supabase.from('workout_blocks').insert(defs.map(b=>({...b, workout_day_id: wdId})))
     }
-    notify('success','Workout generated for today')
+    // reload blocks
     const wds = await supabase.from('workout_days').select('id,date').eq('user_id', user.id).in('date', weekDates)
     const wdIds2 = ((wds.data||[]) as WorkoutDay[]).map(w=>w.id)
     const blocks2 = wdIds2.length ? await supabase.from('workout_blocks').select('*').in('workout_day_id', wdIds2) : {data:[]}
     const by: Record<string,WorkoutBlock[]> = {}; weekDates.forEach(d=>by[d]=[])
     for(const w of (wds.data||[]) as WorkoutDay[]){ by[w.date] = (blocks2.data||[] as WorkoutBlock[]).filter(b=>b.workout_day_id===w.id) }
     setBlocksByDate(by)
-  }
-
-  /* ---------- weight logging ---------- */
-  async function addWeight(){
-    try{
-      const kg = parseFloat(weightInput)
-      if(!kg || isNaN(kg)){ notify('error','Enter weight in kg'); return }
-      const { data:{ user } } = await supabase.auth.getUser()
-      if(!user){ notify('error','Sign in first'); return }
-      await supabase.from('weights').insert({ user_id:user.id, date: today, kg })
-      setWeightInput('')
-      setLatestWeight(kg)
-      notify('success','Weight logged')
-    }catch(e){
-      console.warn(e)
-      notify('error','Could not save weight')
-    }
+    notify('success','Workout generated for today')
   }
 
   /* ---------- computed ---------- */
-  const todayMeals = mealsByDate[today] || []
-  const todayBlocks = blocksByDate[today] || []
-  const todayEvents = (eventsByDate[today] || []).slice(0,3)
-  const greeting = (() => {
-    const h = new Date().getHours()
-    if(h<12) return 'Good Morning'
-    if(h<17) return 'Good Afternoon'
-    return 'Good Evening'
-  })()
+  const greeting = (() => { const h=new Date().getHours(); return h<12?'Good Morning':h<17?'Good Afternoon':'Good Evening' })()
   const goalDelta = (latestWeight!=null && profile?.goal_weight!=null)
     ? (Math.round((latestWeight - (profile.goal_weight as number))*10)/10)
     : null
   const daysToGo = profile?.goal_date ? Math.max(0, Math.ceil((+new Date((profile.goal_date as string)+'T00:00:00') - +new Date())/86400000)) : null
+
+  const todayMeals = mealsByDate[today] || []
+  const todayBlocks = blocksByDate[today] || []
+  const todayEvents = (eventsByDate[today] || []).slice(0,3)
 
   /* ---------- render ---------- */
   return (
@@ -240,31 +211,21 @@ export default function HomePage(){
         <div className={styles.appBrand}>HouseholdHQ</div>
       </div>
 
-      {/* Greeting & Goal card */}
-      <h1 className="page-title">{greeting} {profile?.full_name ? profile.full_name : ''}</h1>
+      {/* Greeting */}
+      <h1 className={styles.h1}>{greeting} {profile?.full_name ? profile.full_name : ''}</h1>
 
+      {/* Goal card */}
       <section className={`panel ${styles.goalCard}`}>
-        <div className={styles.goalRow}>
-          <div>Your Goal</div>
-          <div className={styles.goalVal}>{profile?.goal_weight!=null ? `${profile.goal_weight} Kg` : '—'}</div>
-        </div>
-        <div className={styles.goalRow}>
-          <div>Target Date</div>
-          <div className={styles.goalVal}>{profile?.goal_date ? new Date((profile.goal_date as string)+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}) : '—'}</div>
-        </div>
-        <div className={styles.goalRow}>
-          <div>Days to go</div>
-          <div className={styles.goalVal}>{daysToGo!=null ? daysToGo : '—'}</div>
-        </div>
-        <div className={styles.goalDiff}>
-          {goalDelta!=null ? `${Math.abs(goalDelta)} Kg ${goalDelta>0?'above':'below'} goal` : '—'}
-        </div>
+        <div className={styles.goalRow}><div>Your Goal</div><div className={styles.goalVal}>{profile?.goal_weight!=null ? `${profile.goal_weight} Kg` : '—'}</div></div>
+        <div className={styles.goalRow}><div>Target Date</div><div className={styles.goalVal}>{profile?.goal_date ? new Date((profile.goal_date as string)+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}) : '—'}</div></div>
+        <div className={styles.goalRow}><div>Days to go</div><div className={styles.goalVal}>{daysToGo!=null ? daysToGo : '—'}</div></div>
+        <div className={styles.goalDiff}>{goalDelta!=null ? `${Math.abs(goalDelta)} Kg ${goalDelta>0?'above':'below'} goal` : '—'}</div>
       </section>
 
-      {/* Tabs */}
-      <div className="chips">
-        <button className={`chip ${tab==='today'?'on':''}`} onClick={()=>setTab('today')}>Today</button>
-        <button className={`chip ${tab==='week'?'on':''}`} onClick={()=>{ setTab('week'); setSelDay(weekDates[0]) }}>Week</button>
+      {/* Today / Week toggle centered */}
+      <div className={styles.seg}>
+        <button className={`${styles.segBtn} ${tab==='today'?'active':''}`} onClick={()=>setTab('today')}>Today</button>
+        <button className={`${styles.segBtn} ${tab==='week'?'active':''}`} onClick={()=>{ setTab('week'); setSelDay(weekDates[0]) }}>Week</button>
       </div>
 
       {tab==='today' ? (
@@ -277,7 +238,7 @@ export default function HomePage(){
             {todayEvents.length===0 ? <div className="muted">No events.</div> : (
               <ul className={styles.list}>
                 {todayEvents.map(ev=>(
-                  <li key={ev.id} className={styles.listRow}>
+                  <li key={ev.id} className={styles.row}>
                     <div>{ev.title}</div>
                     <div className={styles.time}>{timeRange(ev.start_time, ev.end_time)}</div>
                   </li>
@@ -297,8 +258,8 @@ export default function HomePage(){
             ) : (
               <ul className={styles.list}>
                 {todayMeals.map(m=>(
-                  <li key={m.id} className={styles.listRow}>
-                    <div>{mealTag(m.meal_type)}</div>
+                  <li key={m.id} className={styles.row}>
+                    <div>{mealLabel(m.meal_type)}</div>
                     <div className={styles.time}>{MEAL_TIME[m.meal_type] || '—'}</div>
                     <div className="muted" style={{gridColumn:'1 / -1'}}>{m.recipe_name||'TBD'}</div>
                   </li>
@@ -309,7 +270,7 @@ export default function HomePage(){
 
           {/* Workout Today */}
           <section className="panel">
-            <div className={styles.sectionTitle}>Today’s Workout</div>
+            <div className={styles.sectionTitle}>Today’s Exercise</div>
             {todayBlocks.length===0 ? (
               <>
                 <div className="muted">No plan yet.</div>
@@ -318,7 +279,7 @@ export default function HomePage(){
             ) : (
               <ul className={styles.list}>
                 {todayBlocks.map(b=>(
-                  <li key={b.id} className={styles.listRow}>
+                  <li key={b.id} className={styles.row}>
                     <div>{b.title || b.kind || 'Block'}</div>
                     <div className="muted" style={{gridColumn:'1 / -1'}}>{b.details||''}</div>
                   </li>
@@ -333,7 +294,7 @@ export default function HomePage(){
             {grocery.length===0 ? <div className="muted">Empty.</div> : (
               <ul className={styles.list}>
                 {grocery.slice(0,6).map(it=>(
-                  <li key={it.id} className={styles.listRow}>
+                  <li key={it.id} className={styles.row}>
                     <div>{it.name}</div>
                     <div className="muted">{it.quantity??''} {it.unit??''}</div>
                   </li>
@@ -347,14 +308,25 @@ export default function HomePage(){
             <div className={styles.sectionTitle}>Log weight</div>
             <div className={styles.weightRow}>
               <input className="pill-input" placeholder="Log weight (kg)" inputMode="decimal" value={weightInput} onChange={e=>setWeightInput(e.target.value)} />
-              <button className="button" onClick={addWeight}>Add</button>
+              <button className="button" onClick={async()=>{
+                try{
+                  const kg = parseFloat(weightInput)
+                  if(!kg || isNaN(kg)){ notify('error','Enter weight in kg'); return }
+                  const { data:{ user } } = await supabase.auth.getUser()
+                  if(!user){ notify('error','Sign in first'); return }
+                  await supabase.from('weights').insert({ user_id:user.id, date: today, kg })
+                  setWeightInput('')
+                  setLatestWeight(kg)
+                  notify('success','Weight logged')
+                }catch(e){ console.warn(e); notify('error','Could not save weight') }
+              }}>Add</button>
             </div>
           </section>
         </>
       ) : (
         <>
-          {/* Week date chips */}
-          <div className="chips">
+          {/* Week day chips */}
+          <div className="chips" style={{justifyContent:'center'}}>
             {weekDates.map(d=>(
               <button key={d} className={`chip ${selDay===d?'on':''}`} onClick={()=>setSelDay(d)}>
                 {new Date(d+'T00:00:00').toLocaleDateString(undefined,{weekday:'short', day:'2-digit'})}
@@ -363,13 +335,12 @@ export default function HomePage(){
           </div>
 
           <div className={styles.grid2}>
-            {/* Week Calendar */}
             <section className="panel">
               <div className={styles.sectionTitle}>Calendar</div>
               {!(eventsByDate[selDay]||[]).length ? <div className="muted">No events.</div> : (
                 <ul className={styles.list}>
                   {(eventsByDate[selDay]||[]).map(ev=>(
-                    <li key={ev.id} className={styles.listRow}>
+                    <li key={ev.id} className={styles.row}>
                       <div>{ev.title}</div>
                       <div className={styles.time}>{timeRange(ev.start_time, ev.end_time)}</div>
                     </li>
@@ -378,14 +349,13 @@ export default function HomePage(){
               )}
             </section>
 
-            {/* Week Diet */}
             <section className="panel">
               <div className={styles.sectionTitle}>Diet</div>
               {!(mealsByDate[selDay]||[]).length ? <div className="muted">No plan.</div> : (
                 <ul className={styles.list}>
                   {(mealsByDate[selDay]||[]).map(m=>(
-                    <li key={m.id} className={styles.listRow}>
-                      <div>{mealTag(m.meal_type)}</div>
+                    <li key={m.id} className={styles.row}>
+                      <div>{mealLabel(m.meal_type)}</div>
                       <div className="muted" style={{gridColumn:'1 / -1'}}>{m.recipe_name||'TBD'}</div>
                     </li>
                   ))}
@@ -393,13 +363,12 @@ export default function HomePage(){
               )}
             </section>
 
-            {/* Week Exercise */}
             <section className="panel">
               <div className={styles.sectionTitle}>Exercise</div>
               {!(blocksByDate[selDay]||[]).length ? <div className="muted">No plan.</div> : (
                 <ul className={styles.list}>
                   {(blocksByDate[selDay]||[]).map(b=>(
-                    <li key={b.id} className={styles.listRow}>
+                    <li key={b.id} className={styles.row}>
                       <div>{b.title || b.kind || 'Block'}</div>
                       <div className="muted" style={{gridColumn:'1 / -1'}}>{b.details||''}</div>
                     </li>
@@ -408,13 +377,12 @@ export default function HomePage(){
               )}
             </section>
 
-            {/* Week Grocery (current list) */}
             <section className="panel">
               <div className={styles.sectionTitle}>Your Grocery list</div>
               {grocery.length===0 ? <div className="muted">Empty.</div> : (
                 <ul className={styles.list}>
                   {grocery.slice(0,6).map(it=>(
-                    <li key={it.id} className={styles.listRow}>
+                    <li key={it.id} className={styles.row}>
                       <div>{it.name}</div>
                       <div className="muted">{it.quantity??''} {it.unit??''}</div>
                     </li>
