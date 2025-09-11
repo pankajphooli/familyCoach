@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { createClient as createSupabaseClient, Session } from '@supabase/supabase-js'
+import { createClient } from '../lib/supabaseClient'
 import styles from './home/home-ui.module.css'
 
 type Meal = { id: string; plan_day_id: string; meal_type: string; recipe_name: string | null }
@@ -16,11 +16,7 @@ const pad = (n:number)=>String(n).padStart(2,'0')
 const ymd = (d:Date)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
 const today = ymd(new Date())
 const MEAL_TIME: Record<string,string> = {
-  breakfast: '08:00–09:00',
-  snack: '11:00–12:00',
-  lunch: '13:00–14:00',
-  snack_pm: '16:00–17:00',
-  dinner: '19:00–20:00'
+  breakfast: '08:00–09:00', snack: '11:00–12:00', lunch: '13:00–14:00', snack_pm: '16:00–17:00', dinner: '19:00–20:00'
 }
 const mealLabel = (t?:string)=>{ const v=(t||'').toLowerCase(); if(v.includes('break'))return'Breakfast'; if(v.includes('lunch'))return'Lunch'; if(v.includes('dinner'))return'Dinner'; if(v.includes('snack'))return'Snack'; return'Meal' }
 const timeRange = (a?:string|null,b?:string|null)=> (a||b)?`${(a||'').slice(0,5)} - ${(b||'').slice(0,5)}`:''
@@ -38,11 +34,7 @@ function weekDatesFrom(d: Date){
 }
 
 export default function HomePage(){
-  const supabase = useMemo(()=>createSupabaseClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-  ), [])
-
+  const supabase = useMemo(()=>createClient(), [])
   const [authChecked, setAuthChecked] = useState(false)
   const [userId, setUserId] = useState<string|null>(null)
   const [loading, setLoading] = useState(false)
@@ -58,12 +50,11 @@ export default function HomePage(){
     if(typeof window!=='undefined' && (window as any).toast){ (window as any).toast(kind,msg) }
   }
 
-  // Try to detect an events table that exists (or at least responds)
   async function detectEventsTable(): Promise<string|null>{
     const candidates = ['events','calendar_events','family_events','household_events']
     for(const t of candidates){
       const r = await supabase.from(t).select('id').limit(1)
-      // If not a "relation missing" error, we consider it usable (RLS/empty is fine)
+      // If it’s not “relation missing” (42P01), treat as usable (RLS/empty OK)
       if(!r.error || (r.error as any)?.code !== '42P01') return t
     }
     return null
@@ -72,7 +63,7 @@ export default function HomePage(){
   async function loadAll(uid:string){
     setLoading(true)
     try{
-      // PROFILE (tolerate goal_* and target_*)
+      // PROFILE (supports both goal_* and target_*)
       const prof = await supabase
         .from('profiles')
         .select('full_name, goal_weight, target_weight, goal_date, target_date')
@@ -140,19 +131,18 @@ export default function HomePage(){
     }
   }
 
-  // Robust auth bootstrapping (no hard-stopping the page)
+  // Auth boot using the same SSR browser client your other pages use
   useEffect(()=>{ 
     let unsub: { unsubscribe: ()=>void } | undefined
     ;(async()=>{
-      // Try current session
       const { data:{ session } } = await supabase.auth.getSession()
       const currUser = session?.user ?? (await supabase.auth.getUser()).data.user ?? null
       if(currUser?.id){
         setUserId(currUser.id)
         await loadAll(currUser.id)
       }
-      // Subscribe for late-arriving session (first paint, refreshes, etc.)
-      unsub = supabase.auth.onAuthStateChange((_event, s: Session | null)=>{
+      // pick up late session changes
+      unsub = supabase.auth.onAuthStateChange((_event, s)=>{
         const id = s?.user?.id || null
         setUserId(id)
         if(id) loadAll(id)
