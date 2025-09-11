@@ -1,5 +1,10 @@
-/* Local wrapper so we can safely scope styles */
 .home {}
+
+/* Brand */
+.appBrand { font-weight: 800; text-align: center; opacity: .85; }
+
+/* Page title (matches your app wide style) */
+.h1 { font-size: 32px; font-weight: 800; margin: 8px 0 8px; }
 
 /* Goal card */
 .goalCard { display: grid; gap: 8px; }
@@ -7,26 +12,30 @@
 .goalVal { font-weight: 800; font-size: 18px; }
 .goalDiff { text-align: center; font-weight: 800; margin-top: 4px; }
 
-/* Section headings in panels */
+/* Centered Today / Week segmented toggle like the design (text with underline) */
+.seg { display:flex; align-items:center; justify-content:center; gap:28px; margin: 4px 0 6px; }
+.segBtn { position:relative; font-weight:800; opacity:.6; }
+.segBtn.active { opacity:1; }
+.segBtn.active::after{
+  content:''; position:absolute; left:0; right:0; bottom:-6px; height:3px; border-radius:2px; background:#111;
+}
+.dark .segBtn.active::after{ background:#fff; }
+
+/* Section heading inside cards */
 .sectionTitle { font-weight: 800; margin-bottom: 6px; }
 
-/* Generic list look inside panels */
+/* Simple list inside cards */
 .list { display: grid; gap: 8px; }
-.listRow {
+.row {
   display: grid; grid-template-columns: 1fr auto; gap: 4px;
   padding: 8px 0; border-bottom: 1px solid var(--card-border);
 }
-.listRow:last-child { border-bottom: none; }
-.time { font-size: 14px; opacity: .8; align-self: center; }
+.row:last-child { border-bottom: none; }
+.time { font-size: 14px; opacity: .85; align-self: center; }
 
-/* Two-column grid on wide screens only */
-.grid2 { display: grid; gap: 12px; grid-template-columns: 1fr; }
-@media (min-width: 900px){
-  .grid2 { grid-template-columns: 1fr 1fr; }
-}
+/* Two columns only on wide screens */
+.grid2 { display:grid; gap:12px; grid-template-columns: 1fr; }
+@media (min-width: 900px){ .grid2 { grid-template-columns: 1fr 1fr; } }
 
-/* Weight row */
-.weightRow { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
-
-/* Brand (uses your existing global vars) */
-.appBrand { font-weight: 800; text-align: center; opacity: .85; }
+/* Weight input row */
+.weightRow { display:grid; grid-template-columns: 1fr auto; gap:10px; }
