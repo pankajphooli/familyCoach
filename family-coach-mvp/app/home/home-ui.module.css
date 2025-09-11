@@ -1,41 +1,74 @@
-.home {}
-
-/* Brand */
-.appBrand { font-weight: 800; text-align: center; opacity: .85; }
-
-/* Page title (matches your app wide style) */
-.h1 { font-size: 32px; font-weight: 800; margin: 8px 0 8px; }
+.brand{
+  text-align:center;
+  font-weight:800;
+  opacity:.9;
+  margin-top:4px;
+}
+.h1{
+  font-size:28px;
+  font-weight:800;
+  margin:6px 0 4px;
+}
 
 /* Goal card */
-.goalCard { display: grid; gap: 8px; }
-.goalRow { display: flex; align-items: center; justify-content: space-between; font-size: 16px; }
-.goalVal { font-weight: 800; font-size: 18px; }
-.goalDiff { text-align: center; font-weight: 800; margin-top: 4px; }
-
-/* Centered Today / Week segmented toggle like the design (text with underline) */
-.seg { display:flex; align-items:center; justify-content:center; gap:28px; margin: 4px 0 6px; }
-.segBtn { position:relative; font-weight:800; opacity:.6; }
-.segBtn.active { opacity:1; }
-.segBtn.active::after{
-  content:''; position:absolute; left:0; right:0; bottom:-6px; height:3px; border-radius:2px; background:#111;
+.goal{}
+.goalRow{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:6px 0; border-bottom:1px solid var(--card-border);
 }
-.dark .segBtn.active::after{ background:#fff; }
-
-/* Section heading inside cards */
-.sectionTitle { font-weight: 800; margin-bottom: 6px; }
-
-/* Simple list inside cards */
-.list { display: grid; gap: 8px; }
-.row {
-  display: grid; grid-template-columns: 1fr auto; gap: 4px;
-  padding: 8px 0; border-bottom: 1px solid var(--card-border);
+.goalRow:last-child{ border-bottom:none; }
+.goalVal{ font-weight:800; }
+.goalDiff{
+  margin-top:8px; text-align:center; font-weight:800;
 }
-.row:last-child { border-bottom: none; }
-.time { font-size: 14px; opacity: .85; align-self: center; }
 
-/* Two columns only on wide screens */
-.grid2 { display:grid; gap:12px; grid-template-columns: 1fr; }
-@media (min-width: 900px){ .grid2 { grid-template-columns: 1fr 1fr; } }
+/* Tabs — centered labels with underline on active */
+.tabs{
+  display:flex; gap:24px; justify-content:center; align-items:center;
+  margin-top:2px;
+}
+.tab{
+  background:none; border:none; padding:6px 8px; font-weight:800; opacity:.6;
+  position:relative; cursor:pointer;
+}
+.tab.active{ opacity:1; }
+.tab.active::after{
+  content:''; position:absolute; left:0; right:0; bottom:-6px;
+  height:3px; border-radius:3px; background:#111;
+}
+.dark .tab.active::after{ background:#fff; }
 
-/* Weight input row */
-.weightRow { display:grid; grid-template-columns: 1fr auto; gap:10px; }
+/* Week date chips */
+.chips{
+  display:flex; gap:10px; overflow-x:auto; padding:8px 2px 6px;
+}
+.chip{
+  padding:10px 14px; border-radius:999px; border:1px solid #d9dbe0;
+  background:#eef0f4; color:#111; font-weight:700; white-space:nowrap;
+}
+.chipOn{ background:#111; color:#fff; border-color:#111; }
+.dark .chip{ border-color:rgba(255,255,255,.22); background:rgba(255,255,255,.12); color:#fff; }
+.dark .chipOn{ background:#fff; color:#000; border-color:#fff; }
+
+.subtitle{
+  text-align:center; color:var(--muted); margin-top:2px;
+}
+
+/* Section list rows */
+.sectionTitle{ font-weight:800; margin-bottom:8px; }
+.list{ display:grid; gap:8px; }
+.row{
+  display:grid; grid-template-columns: 1fr auto; gap:8px;
+  padding:6px 0; border-bottom:1px solid var(--card-border);
+}
+.row:last-child{ border-bottom:none; }
+.time{ opacity:.8; }
+
+/* Weight row */
+.weightRow{
+  display:flex; gap:10px; align-items:center; justify-content:space-between;
+}
+.weightInput{
+  flex:1; background:transparent; border:1px solid var(--card-border);
+  border-radius:10px; padding:10px 12px; font-size:16px;
+}
