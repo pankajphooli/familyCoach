@@ -1,330 +1,176 @@
 'use client'
-
-import { useEffect, useMemo, useRef, useState } from 'react'
-import './family-ui.css'
+import { useEffect, useState } from 'react'
 import { createClient } from '../../lib/supabaseClient'
 
-type Family = {
-  id: string
-  name: string | null
-  code?: string | null
-  invite_code?: string | null
-  join_code?: string | null
-}
+type Member = { id:string, user_id:string, role:string, can_manage_members:boolean, profiles?: any }
+type Kid = { id:string, name:string, dob?: string | null }
 
-type ProfileLite = { full_name: string | null }
-type Member = {
-  user_id: string
-  role: 'owner' | 'member'
-  can_manage_members?: boolean | null
-  profiles?: ProfileLite | null
-}
-type Dependent = { id: string; name: string; dob: string | null }
-
-export default function FamilyPage() {
-  const supabase = useMemo(() => createClient(), [])
-  const [loading, setLoading] = useState(true)
-
-  const [fam, setFam] = useState<Family | null>(null)
+export default function Family(){
+  const supabase = createClient()
+  const [family, setFamily] = useState<any>(null)
   const [members, setMembers] = useState<Member[]>([])
-  const [kids, setKids] = useState<Dependent[]>([])
-  const [meId, setMeId] = useState<string>('')
+  const [kids, setKids] = useState<Kid[]>([])
+  const [invite, setInvite] = useState<string>('')
+  const [name, setName] = useState<string>('')
+  const [isOwner, setIsOwner] = useState<boolean>(false)
 
+  // add-kid state
   const [kidName, setKidName] = useState('')
-  const [kidDob, setKidDob] = useState('')
+  const [kidDob, setKidDob] = useState<string>('')
 
-  const addCardRef = useRef<HTMLDivElement | null>(null)
+  const load = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if(!user) return
+    const { data: prof } = await supabase.from('profiles').select('family_id, full_name').eq('id', user.id).maybeSingle()
+    if (!prof?.family_id) { setFamily(null); setMembers([]); setKids([]); return }
 
-  const notify = (kind: 'success' | 'error', msg: string) => {
-    if (typeof window !== 'undefined' && (window as any).toast)
-      (window as any).toast(kind, msg)
-    else (kind === 'error' ? console.warn : console.log)(msg)
-  }
+    const { data: fam } = await supabase.from('families').select('*').eq('id', prof.family_id).maybeSingle()
+    setFamily(fam || null)
+    setIsOwner(fam?.owner_user_id === user.id)
 
-  async function findFamilyId(userId: string): Promise<string | null> {
-    // Prefer membership table
-    const fm = await supabase
-      .from('family_members')
-      .select('family_id')
-      .eq('user_id', userId)
-      .limit(1)
-      .maybeSingle()
-    if ((fm.data as any)?.family_id) return (fm.data as any).family_id as string
-
-    // Fallback to own profile
-    const pr = await supabase
-      .from('profiles')
-      .select('family_id')
-      .eq('id', userId)
-      .maybeSingle()
-    return ((pr.data as any)?.family_id as string) || null
-  }
-
-  async function ensureOwnerMembership(userId: string, familyId: string) {
-    const exists = await supabase
-      .from('family_members')
-      .select('user_id')
-      .eq('user_id', userId)
-      .eq('family_id', familyId)
-      .maybeSingle()
-    if (!exists.data) {
-      try {
-        await supabase
-          .from('family_members')
-          .insert({
-            family_id: familyId,
-            user_id: userId,
-            role: 'owner',
-            can_manage_members: true,
-          } as any)
-          .select()
-          .maybeSingle()
-      } catch {
-        // ignore; if policies block, page will still function as long as a row exists
-      }
+    // Ensure membership exists for owner (self-heal)
+    const { data: current } = await supabase.from('family_members').select('id').eq('family_id', prof.family_id).eq('user_id', user.id).maybeSingle()
+    if (!current) {
+      await supabase.from('family_members').insert({ family_id: prof.family_id, user_id: user.id, role: fam?.owner_user_id === user.id ? 'owner' : 'member', can_manage_members: fam?.owner_user_id === user.id })
     }
+
+    // Members (defensive for nested relation)
+    const { data: memsRaw } = await supabase.from('family_members').select('id,user_id,role,can_manage_members,profiles:profiles(full_name)').eq('family_id', prof.family_id)
+    const mems: any[] = (memsRaw as any[]) || []
+    const normalized: Member[] = mems.map((m:any) => {
+      const p = m.profiles; const full = Array.isArray(p) ? (p[0]?.full_name ?? null) : (p?.full_name ?? null)
+      return { ...m, profiles: { full_name: full } }
+    })
+    setMembers(normalized)
+
+    // Kids (dependents)
+    const { data: d } = await supabase.from('dependents').select('id,name,dob').eq('family_id', prof.family_id).order('name')
+    setKids((d||[]) as Kid[])
   }
 
-  function codeValue(f: Family | null) {
-    return f?.invite_code || f?.code || f?.join_code || '—'
+  useEffect(()=>{ load() }, [])
+
+  const createFamily = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if(!user){ alert('Sign in first'); return }
+    const invite_code = Math.random().toString(36).slice(2,8)
+    const { data, error } = await supabase.from('families').insert({ name, owner_user_id: user.id, invite_code }).select().single()
+    if(error) { alert(error.message); return }
+    await supabase.from('profiles').update({ family_id: data.id }).eq('id', user.id)
+    await supabase.from('family_members').insert({ family_id: data.id, user_id: user.id, role: 'owner', can_manage_members: true })
+    setName('')
+    await load()
   }
 
-  const canManage = (() => {
-    const mine = members.find((m) => m.user_id === meId)
-    return (mine?.role === 'owner') || !!mine?.can_manage_members
-  })()
-
-  useEffect(() => {
-    ;(async () => {
-      setLoading(true)
-
-      const { data: auth } = await supabase.auth.getUser()
-      const user = auth.user
-      if (!user) {
-        setLoading(false)
-        return
-      }
-      setMeId(user.id)
-
-      let famId = await findFamilyId(user.id)
-
-      // heal if profile has family_id but membership is missing
-      if (famId) {
-        await ensureOwnerMembership(user.id, famId)
-      }
-      if (!famId) famId = await findFamilyId(user.id)
-
-      if (!famId) {
-        setLoading(false)
-        return
-      }
-
-      // family
-      const f = await supabase
-        .from('families')
-        .select('id,name,code,invite_code,join_code')
-        .eq('id', famId)
-        .maybeSingle()
-      setFam((f.data as Family) || null)
-
-      // members (normalize profiles)
-      const mem = await supabase
-        .from('family_members')
-        .select('user_id, role, can_manage_members, profiles(full_name)')
-        .eq('family_id', famId)
-        .order('role', { ascending: false })
-
-      const normalized: Member[] = ((mem.data as any[]) || []).map((r) => ({
-        user_id: r.user_id,
-        role: r.role,
-        can_manage_members: r.can_manage_members ?? null,
-        profiles: r?.profiles
-          ? (Array.isArray(r.profiles) ? r.profiles[0] : r.profiles)
-          : null,
-      }))
-      setMembers(normalized)
-
-      // kids
-      const dep = await supabase
-        .from('dependents')
-        .select('id,name,dob')
-        .eq('family_id', famId)
-        .order('name')
-      setKids(((dep.data as any[]) || []) as Dependent[])
-
-      setLoading(false)
-    })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  async function onRegenerate() {
-    if (!fam) return
-    if (!canManage) return notify('error', 'Only owner can regenerate')
-    const newCode = Math.random().toString(36).slice(2, 7)
-    const { error } = await supabase.from('families').update({ code: newCode }).eq('id', fam.id)
-    if (error) return notify('error', 'Could not regenerate')
-    setFam({ ...fam, code: newCode })
-    notify('success', 'Invite code updated')
+  const removeMember = async (id:string) => {
+    if (!isOwner) { alert('Only the owner can remove'); return }
+    const { error } = await supabase.from('family_members').delete().eq('id', id)
+    if (error) alert(error.message); else await load()
   }
 
-  async function onRemoveAdult(uid: string) {
-    if (!fam) return
-    if (!canManage) return notify('error', 'You do not have permission')
-    const isOwner = members.some((m) => m.user_id === uid && m.role === 'owner')
-    if (uid === meId && isOwner) return notify('error', 'Owner cannot remove themselves')
-    const { error } = await supabase
-      .from('family_members')
-      .delete()
-      .eq('family_id', fam.id)
-      .eq('user_id', uid)
-    if (error) return notify('error', 'Remove failed')
-    setMembers((prev) => prev.filter((m) => m.user_id !== uid))
+  const toggleManager = async (m:Member) => {
+    if (!isOwner) { alert('Only the owner can change permissions'); return }
+    const { error } = await supabase.from('family_members').update({ can_manage_members: !m.can_manage_members }).eq('id', m.id)
+    if (error) alert(error.message); else await load()
   }
 
-  async function onRemoveKid(id: string) {
-    if (!fam) return
-    if (!canManage) return notify('error', 'You do not have permission')
-    const { error } = await supabase.from('dependents').delete().eq('id', id).eq('family_id', fam.id)
-    if (error) return notify('error', 'Remove failed')
-    setKids((prev) => prev.filter((k) => k.id !== id))
+  const regenInvite = async () => {
+    if (!isOwner || !family) return
+    const code = Math.random().toString(36).slice(2,8)
+    const { error } = await supabase.from('families').update({ invite_code: code }).eq('id', family.id)
+    if (error) alert(error.message); else await load()
   }
 
-  async function onAddKid() {
-    if (!fam) return
-    if (!canManage) return notify('error', 'You do not have permission')
-    const name = kidName.trim()
-    if (!name) return notify('error', 'Enter a name')
-    const ins = await supabase
-      .from('dependents')
-      .insert({ family_id: fam.id, name, dob: kidDob || null })
-      .select('id,name,dob')
-      .maybeSingle()
-    if (ins.error) return notify('error', 'Add failed')
-    setKids((prev) => [...prev, (ins.data as Dependent)])
-    setKidName('')
-    setKidDob('')
-    notify('success', 'Child added')
+  const joinWithCode = async () => {
+    const { data: fam, error } = await supabase.from('families').select('*').eq('invite_code', invite).maybeSingle()
+    if (error || !fam) { alert('Invalid code'); return }
+    const { data: { user } } = await supabase.auth.getUser()
+    if(!user){ alert('Sign in'); return }
+    await supabase.from('family_members').insert({ family_id: fam.id, user_id: user.id, role: 'member' })
+    await supabase.from('profiles').update({ family_id: fam.id }).eq('id', user.id)
+    setInvite('')
+    await load()
   }
 
-  if (loading) {
-    return (
-      <div className="container"><div className="muted">Loading family…</div></div>
-    )
+  const addKid = async () => {
+    if (!family) return
+    if (!kidName.trim()) { alert('Enter a name'); return }
+    const color = ['#60a5fa','#a78bfa','#34d399','#f472b6','#f59e0b','#22d3ee'][Math.floor(Math.random()*6)]
+    const { error } = await supabase.from('dependents').insert({ family_id: family.id, name: kidName.trim(), dob: kidDob || null, color })
+    if (error) { alert(error.message); return }
+    setKidName(''); setKidDob(''); await load()
   }
 
-  if (!fam) {
-    return (
-      <div className="container">
-        <h1 className="page-h1">Family</h1>
-        <div className="muted">
-          No family found yet. Create or join a family from onboarding.
-        </div>
-      </div>
-    )
+  const removeKid = async (id:string) => {
+    if (!isOwner) { alert('Only the owner can remove'); return }
+    const { error } = await supabase.from('dependents').delete().eq('id', id)
+    if (error) alert(error.message); else await load()
   }
-
-  const manage = canManage
 
   return (
-    <div className="container">
-      <h1 className="page-h1">Family</h1>
-
-      <div className="fam-row">
-        <div className="fam-title">
-          Family: <span className="fam-name">{fam.name || '—'}</span>
-        </div>
-        <button
-          className="btn btn-dark"
-          onClick={() => addCardRef.current?.scrollIntoView({ behavior: 'smooth' })}
-        >
-          Add Kids
-        </button>
-      </div>
-
-      <div className="invite-row">
-        <div className="invite-label">Invite Code</div>
-        <div className="invite-code">{codeValue(fam)}</div>
-        {manage && (
-          <button className="btn btn-dark" onClick={onRegenerate}>
-            Regenerate
-          </button>
-        )}
-      </div>
-
-      <section className="panel">
-        <div className="panel-title">Members</div>
-        <ol className="members">
-          {members.map((m, idx) => (
-            <li key={m.user_id} className="member-row">
-              <div className="member-left">
-                <span className="m-index">{idx + 1}.</span>
-                <span className="m-name">{m.profiles?.full_name || '—'}</span>
-                <span className="m-tags">
-                  {m.role === 'owner' && <span className="tag">(owner)</span>}
-                  {m.user_id === meId && <span className="tag">(you)</span>}
-                </span>
-              </div>
-              <div className="member-right">
-                {manage && (
-                  <button className="btn btn-outline sm" onClick={() => onRemoveAdult(m.user_id)}>
-                    Remove
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
-
-          {kids.map((k, idx) => (
-            <li key={k.id} className="member-row">
-              <div className="member-left">
-                <span className="m-index">{members.length + idx + 1}.</span>
-                <span className="m-name">{k.name}</span>
-                <span className="m-tags">
-                  <span className="tag">(child)</span>
-                  {k.dob && <span className="dob"> DOB {new Date(k.dob).toLocaleDateString()}</span>}
-                </span>
-              </div>
-              <div className="member-right">
-                {manage && (
-                  <button className="btn btn-outline sm" onClick={() => onRemoveKid(k.id)}>
-                    Remove
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
-
-          {members.length === 0 && kids.length === 0 && (
-            <li className="muted">No members yet.</li>
-          )}
-        </ol>
-      </section>
-
-      <section ref={addCardRef} className="panel">
-        <div className="panel-title">Add Items</div>
-        <div className="add-grid">
-          <div className="field">
-            <input
-              className="line-input"
-              placeholder="Name"
-              value={kidName}
-              onChange={(e) => setKidName(e.target.value)}
-            />
+    <div className="grid">
+      {!family && (
+        <div className="card">
+          <h2>Your Family</h2>
+          <p>You&apos;re not in a family yet.</p>
+          <div className="grid grid-2">
+            <input className="input" placeholder="Family name" value={name} onChange={e=>setName(e.target.value)} />
+            <button className="button" onClick={createFamily}>Create</button>
           </div>
-          <div className="field">
-            <input
-              className="line-input"
-              placeholder="Dob"
-              type="date"
-              value={kidDob}
-              onChange={(e) => setKidDob(e.target.value)}
-            />
-          </div>
-          <div className="actions right">
-            <button className="btn btn-dark" onClick={onAddKid}>Add</button>
+          <hr/>
+          <div className="grid grid-2">
+            <input className="input" placeholder="Invite code" value={invite} onChange={e=>setInvite(e.target.value)} />
+            <button className="button" onClick={joinWithCode}>Join</button>
           </div>
         </div>
-      </section>
+      )}
+      {family && (
+        <div className="card">
+          <h2>Family: {family.name}</h2>
+          <p><b>Invite code:</b> {family.invite_code} {isOwner && <button className="button" onClick={regenInvite} style={{marginLeft:8}}>Regenerate</button>}</p>
+          <div className="grid grid-2">
+            <div className="card">
+              <h3>Members</h3>
+              <div className="grid">
+                {members.length === 0 && <p className="muted">No members found yet — we&apos;ve ensured you are added as owner automatically.</p>}
+                {members.map(m => (
+                  <div key={m.id} className="card" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div>
+                      <b>{m.profiles?.full_name || m.user_id.slice(0,6)}</b> <small className="muted">({m.role})</small>
+                      {m.can_manage_members && <span className="badge" style={{marginLeft:8}}>manager</span>}
+                    </div>
+                    <div style={{display:'flex',gap:8}}>
+                      {isOwner && (
+                        <>
+                          <button className="button" onClick={()=>toggleManager(m)}>{m.can_manage_members ? 'Revoke manage' : 'Make manager'}</button>
+                          {m.role !== 'owner' && <button className="button" onClick={()=>removeMember(m.id)}>Remove</button>}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="card">
+              <h3>Kids (no email)</h3>
+              <div className="grid grid-3">
+                <input className="input" placeholder="Name" value={kidName} onChange={e=>setKidName(e.target.value)} />
+                <input className="input" type="date" value={kidDob} onChange={e=>setKidDob(e.target.value)} />
+                <button className="button" onClick={addKid}>Add</button>
+              </div>
+              <div className="grid" style={{marginTop:12}}>
+                {kids.length===0 && <p className="muted">No kids added yet.</p>}
+                {kids.map(k => (
+                  <div key={k.id} className="card" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div><b>{k.name}</b> {k.dob ? <small className="muted">({k.dob})</small> : null}</div>
+                    {isOwner && <button className="button" onClick={()=>removeKid(k.id)}>Remove</button>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
