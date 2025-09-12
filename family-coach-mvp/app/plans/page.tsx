@@ -474,7 +474,7 @@ async function openIngredients(meal: Meal){
       </div>
     
       <div className="mr-second">
-        <div className="mr-title">{m.recipe_name || 'TBD'}</div>
+        <div className="mr-title">{m.recipe_name || 'TBD'}</div><br/>
         <div className="mr-actions">
           <button className="chipbtn" onClick={()=>loadReplacements(m)}>Replace</button>
           <button className="chipbtn" onClick={()=>openIngredients(m)}>Add to grocery</button>
