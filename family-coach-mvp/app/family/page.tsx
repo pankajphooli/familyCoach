@@ -152,49 +152,43 @@ export default function FamilyPage(){
     }
   }
 
- async function onJoinFamily(){
+async function onJoinFamily(){
   setJoinErr('')
   const code = joinCode.trim().toLowerCase()
   if (!code) { setJoinErr('Enter the invite code'); return }
 
   try {
-    // 1) Must be signed in
+    // must be signed in
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setJoinErr('Please sign in first'); return }
 
-    // 2) Find the family by invite code (case-insensitive)
-    const { data: fam, error: famErr } = await supabase
-      .from('families')
-      .select('id, invite_code')
-      .ilike('invite_code', code)
-      .maybeSingle()
+    // look up family by code via RPC (bypasses RLS safely)
+    const { data: fam, error: rpcErr } = await supabase
+      .rpc('lookup_family_by_code', { p_code: code })
+      .single()
 
-    if (famErr) { setJoinErr(`Lookup failed: ${famErr.message}`); return }
+    if (rpcErr) { setJoinErr(`Lookup failed: ${rpcErr.message}`); return }
     if (!fam?.id) { setJoinErr('Invalid code'); return }
 
-    // 3) Link your profile to that family (RLS: update own profile only)
+    // link profile to family (RLS: update your own profile)
     const up = await supabase
       .from('profiles')
       .update({ family_id: fam.id })
       .eq('id', user.id)
-
     if (up.error) { setJoinErr(`Link failed: ${up.error.message}`); return }
 
-    // 4) Create membership row (RLS: user_id must be auth.uid())
+    // ensure membership row (ignore duplicate)
     const ins = await supabase
       .from('family_members')
-      .insert({ family_id: fam.id, user_id: user.id, role: 'member', can_manage_members: false })
-
+      .insert({ family_id: fam.id, user_id: user.id, role:'member', can_manage_members:false })
     if (ins.error) {
-      // ignore duplicate membership, surface anything else
       const msg = String(ins.error.message || '').toLowerCase()
       if (!msg.includes('duplicate')) { setJoinErr(`Membership failed: ${ins.error.message}`); return }
     }
 
-    // done
     (window as any)?.toast?.('success','Joined family')
     setJoinCode('')
-    await load() // refresh the page state
+    await load()
   } catch (e:any) {
     setJoinErr(e?.message || 'Network error while joining')
   }
