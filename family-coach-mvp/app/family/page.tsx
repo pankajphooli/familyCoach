@@ -5,7 +5,7 @@ import './family-ui.css'
 
 // IMPORTANT: adjust the casing to match your repo:
 // If your file is /lib/supabaseclient.ts (lowercase c):
-import { createClient } from '../../lib/supabaseclient'
+import { createClient } from '../../lib/supabaseClient'
 // If it's /lib/supabaseClient.ts (capital C), use:
 // import { createClient } from '../../lib/supabaseClient'
 
