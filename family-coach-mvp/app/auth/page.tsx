@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { createClient } from '../lib/supabaseClient'
+import { createClient } from '../../lib/supabaseClient'
 
 type Mode = 'signin' | 'signup'
 
