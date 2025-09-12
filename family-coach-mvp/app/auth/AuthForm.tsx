@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { createClient } from '../../lib/supabaseclient' // ← change to 'supabaseClient' if your file uses a capital C
+import { createClient } from '../../lib/supabaseClient' // ← change to 'supabaseClient' if your file uses a capital C
 
 type Mode = 'signin' | 'signup'
 
