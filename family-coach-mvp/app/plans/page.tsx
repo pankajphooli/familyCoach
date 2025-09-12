@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import './plans-ui.css'
 
@@ -89,6 +89,7 @@ export default function PlansPage(){
   const [profile, setProfile] = useState<Profile|null>(null)
 
   const todayStr = useMemo(()=> ymdLocal(new Date()), [])
+  // Rolling 7-day window starting today (per your request)
   const weekDates = useMemo(()=> nextNDatesFromToday(7), [])
   const [selectedWeekDate, setSelectedWeekDate] = useState<string>(todayStr)
   const cacheKey = useRef<string>('')
@@ -101,6 +102,7 @@ export default function PlansPage(){
     }
   }
 
+  // Try to hydrate from cache first (snappy mobile UX)
   useEffect(()=>{
     cacheKey.current = `plans_cache_${weekDates[0]}`
     try{
@@ -113,7 +115,7 @@ export default function PlansPage(){
         setTodayBlocks(parsed.todayBlocks||[])
       }
     }catch{}
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(()=>{ (async()=>{
@@ -132,7 +134,7 @@ export default function PlansPage(){
         localStorage.setItem(cacheKey.current, JSON.stringify({ weekMeals, weekBlocks, todayMeals, todayBlocks }))
       }catch{}
     } finally { setBusy(false) }
-  })() }, []) // load once
+  })() }, []) // once
 
   function isRecipeAllowed(rec: Recipe, prof: Profile){
     const allergies = (prof.allergies||[]).map(normalizeName)
@@ -162,7 +164,9 @@ export default function PlansPage(){
   }
 
   async function candidatesFor(tag:string, prof:Profile, limit=50): Promise<Recipe[]>{
+    // permissive query + filter in JS -> robust even if recipe tagging is imperfect
     let q:any = supabase.from('recipes').select('name, dietary_pattern, allergens, tags, ingredients, cuisine').limit(limit)
+    // prefer tag match if present
     q = q.ilike('tags', `%${tag}%`)
     const { data } = await q
     const list = (data as Recipe[]) || []
@@ -185,6 +189,7 @@ export default function PlansPage(){
         { meal_type: 'dinner',    recipe_name: dName },
       ]
     }catch{
+      // resilient fallback bank
       const bank = [
         ['Oat Bowl','Chicken Wrap','Salmon & Greens'],
         ['Greek Yogurt Parfait','Turkey Salad','Pasta Primavera'],
@@ -317,7 +322,6 @@ export default function PlansPage(){
     const counts: Record<string, number> = {}
     for(const raw of items){ const name = normalizeName(raw); counts[name] = (counts[name]||0) + 1 }
     for(const [name, qty] of Object.entries(counts)){
-      // prefer grocery_items if exists; fallback to shopping_items
       const ex = await supabase.from('grocery_items').select('id, quantity').eq('user_id', user.id).eq('name', name).maybeSingle()
       if(ex.data){
         const cur = (ex.data as any).quantity ?? 1
@@ -345,7 +349,7 @@ export default function PlansPage(){
     const tag = mealTagFor(meal)
     const current = normalizeName(meal.recipe_name||'')
 
-    async function querySet(applyDiet:boolean, applyTag:boolean){
+    async function querySet(applyTag:boolean){
       let q:any = supabase.from('recipes').select('name, dietary_pattern, allergens, cuisine, tags').limit(100)
       if(applyTag){ q = q.ilike('tags', `%${tag}%`) }
       const { data } = await q
@@ -353,9 +357,8 @@ export default function PlansPage(){
     }
 
     let candidates: Recipe[] = []
-    const orders:[boolean,boolean][] = [[true,true],[false,true],[true,false],[false,false]]
-    for(const [applyDiet, applyTag] of orders){
-      const set = await querySet(applyDiet, applyTag)
+    for(const applyTag of [true,false]){
+      const set = await querySet(applyTag)
       const filtered = set.filter((r:Recipe)=> isRecipeAllowed(r, p) && normalizeName(r.name) !== current)
       candidates = candidates.concat(filtered)
       const seen = new Set<string>()
@@ -375,23 +378,25 @@ export default function PlansPage(){
 
   // --- UI helpers ------------------------------------------------------------
   const segBtn = (label:string, active:boolean, onClick: ()=>void) => (
-    <button className={active ? 'on' : ''} onClick={onClick}>{label}</button>
+    <button className={`segbtn ${active?'on':''}`} onClick={onClick}>{label}</button>
   )
+
   const subTabBar = (value:SubTab, set:(v:SubTab)=>void) => (
-    <div className="subtabs">
-      <button className={value==='today'?'active':''} onClick={()=>set('today')}>Today</button>
-      <button className={value==='week'?'active':''} onClick={()=>set('week')}>Week</button>
+    <div className="subtabs" style={{display:'flex', gap:12, justifyContent:'center', marginBottom:8}}>
+      <button className={`subbtn ${value==='today'?'active':''}`} onClick={()=>set('today')}>Today</button>
+      <button className={`subbtn ${value==='week'?'active':''}`} onClick={()=>set('week')}>Week</button>
     </div>
   )
 
-  // Render a day (used for both Today and Week views)
   function MealsList(meals: Meal[]){
     return (
       <div className="daylist">
         {meals.map(m=>(
           <div key={m.id} className="mealrow">
-            <div className="mr-left">{m.meal_type || 'Meal'}</div>
-            <div className="mr-right">{MEAL_TIME[m.meal_type] || '—'}</div>
+            <div className="mr-top">
+              <div className="mr-left">{m.meal_type || 'Meal'}</div>
+              <div className="mr-right">{MEAL_TIME[m.meal_type] || '—'}</div>
+            </div>
 
             <div className="mr-second">
               <div className="mr-title">{m.recipe_name || 'TBD'}</div>
@@ -442,7 +447,6 @@ export default function PlansPage(){
             MealsList(todayMeals)
           ) : (
             <>
-              {/* Rolling week starting today */}
               <div className="chips" style={{marginBottom:6}}>
                 {weekDates.map(d => (
                   <button key={d} className={`chip ${selectedWeekDate===d?'on':''}`} onClick={()=>setSelectedWeekDate(d)}>
