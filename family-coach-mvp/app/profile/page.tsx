@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { createClient } from '@supabase/supabase-js'
 import { useCallback, useMemo } from 'react'
+import SignOut from '../components/SignOut'
 
 export default function ProfilePage(){
   const supabase = useMemo(()=>createClient(
@@ -26,8 +27,8 @@ export default function ProfilePage(){
         <Link className="link" href="/profile/details">Your details</Link>
         <Link className="link" href="/family">Family</Link>
       </div>
-
-      <button className="button-outline" onClick={onSignOut}>Sign out</button>
+      <SignOut className="button" />
+      {/*     <button className="button-outline" onClick={onSignOut}>Sign out</button> */}
     </div>
   )
 }
