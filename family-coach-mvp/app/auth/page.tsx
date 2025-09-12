@@ -1,135 +1,148 @@
+// app/auth/page.tsx
+import { Suspense } from 'react'
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={<div className="container" style={{padding:16}}>Loading…</div>}>
+      <AuthClient />
+    </Suspense>
+  )
+}
+
+// -------------------- Client component --------------------
 'use client'
 
-import { useMemo, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { createClient } from '../../lib/supabaseClient'
+import { useEffect, useState } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { createClient } from '../../lib/supabaseclient' // <- keep this path to match your repo
 
 type Mode = 'signin' | 'signup'
 
-export default function AuthPage() {
+function AuthClient() {
   const router = useRouter()
-  const sp = useSearchParams()
-  const supabase = useMemo(() => createClient(), [])
+  const searchParams = useSearchParams()
+  const supabase = createClient()
 
-  const [mode, setMode] = useState<Mode>('signup') // design shows Sign up selected
+  // Tabs: Sign in / Sign up
+  const [mode, setMode] = useState<Mode>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
 
-  const redirectAfter = sp.get('redirect') || '/'
+  // if redirectTo exists, use it after success
+  const redirectTo = searchParams?.get('redirectTo') || '/'
 
-  async function ensureProfile(userId: string) {
-    // Profiles in your DB typically exist; this just guarantees it without breaking if email column doesn't exist
-    await supabase.from('profiles').upsert({ id: userId } as any, { onConflict: 'id' })
-  }
+  // If already signed in, bounce to redirect
+  useEffect(() => {
+    ;(async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) router.replace(redirectTo)
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  async function submit() {
-    setBusy(true); setError(null)
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy(true); setErr(null)
+
     try {
-      if (!email || !password) { setError('Enter email and password'); return }
-
-      if (mode === 'signup') {
-        const { data, error } = await supabase.auth.signUp({ email, password })
+      if (mode === 'signin') {
+        const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
-        if (!data.user) throw new Error('No user returned')
-        await ensureProfile(data.user.id)
-        // New accounts → onboarding
-        router.push('/onboarding')
-        return
+      } else {
+        const { error } = await supabase.auth.signUp({ email, password })
+        if (error) throw error
+        // some providers require email confirmation; still route to onboarding/home
       }
 
-      // Sign in
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) throw error
-      if (!data.user) throw new Error('No user returned')
-      await ensureProfile(data.user.id)
+      // Clear any local plan caches so the session refreshes cleanly
+      try {
+        Object.keys(localStorage).forEach(k => { if (k.startsWith('plans_cache_')) localStorage.removeItem(k) })
+      } catch {}
 
-      // Go back to the intended page (or home)
-      router.push(redirectAfter || '/')
-      router.refresh()
+      router.replace(redirectTo || '/')
     } catch (e: any) {
-      setError(e?.message || 'Something went wrong')
+      setErr(e?.message || 'Something went wrong. Try again.')
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <div className="container" style={{ maxWidth: 420, paddingTop: 28, paddingBottom: 28 }}>
-      <div style={{ textAlign: 'center', fontWeight: 800, fontSize: 24, marginBottom: 28 }}>
-        HouseholdHQ
-      </div>
+    <div className="container" style={{maxWidth: 420, marginInline: 'auto', padding: 16}}>
+      {/* Brand */}
+      <div style={{textAlign:'center', fontWeight:800, fontSize:24, margin:'32px 0'}}>HouseholdHQ</div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', justifyContent: 'center', gap: 24, marginBottom: 24 }}>
+      <div style={{display:'flex', gap:18, justifyContent:'center', marginBottom:24}}>
         <button
-          onClick={() => setMode('signin')}
-          style={{
-            background: 'transparent',
-            fontWeight: 700,
-            opacity: mode === 'signin' ? 1 : .42,
-            borderBottom: mode === 'signin' ? '2px solid #000' : '2px solid transparent',
-            paddingBottom: 4
-          }}
+          type="button"
+          onClick={()=>setMode('signin')}
+          style={{border:'none', background:'none', fontWeight: mode==='signin'?800:600, opacity: mode==='signin'?1:.45, textDecoration: mode==='signin'?'underline':'none'}}
         >
           Sign in
         </button>
         <button
-          onClick={() => setMode('signup')}
-          style={{
-            background: 'transparent',
-            fontWeight: 700,
-            opacity: mode === 'signup' ? 1 : .42,
-            borderBottom: mode === 'signup' ? '2px solid #000' : '2px solid transparent',
-            paddingBottom: 4
-          }}
+          type="button"
+          onClick={()=>setMode('signup')}
+          style={{border:'none', background:'none', fontWeight: mode==='signup'?800:600, opacity: mode==='signup'?1:.45, textDecoration: mode==='signup'?'underline':'none'}}
         >
           Sign up
         </button>
       </div>
 
-      <div style={{ textAlign: 'center', fontWeight: 800, fontSize: 18, marginBottom: 6 }}>
+      {/* Headline */}
+      <div style={{textAlign:'center', fontWeight:800, fontSize:18, marginBottom:6}}>
         {mode === 'signup' ? 'Create an account' : 'Welcome back'}
       </div>
-      <div style={{ textAlign: 'center', opacity: .72, marginBottom: 16 }}>
-        {mode === 'signup'
-          ? 'Enter your email to sign up for this app'
-          : 'Enter your email to sign in'}
+      <div style={{textAlign:'center', color:'var(--muted)', marginBottom:18}}>
+        {mode === 'signup' ? 'Enter your email to sign up for this app' : 'Enter your email to sign in'}
       </div>
 
-      <div style={{ display: 'grid', gap: 10 }}>
+      {/* Form */}
+      <form onSubmit={onSubmit} className="grid" style={{gap:12}}>
         <input
-          className="line-input"
-          placeholder="email@domain.com"
           type="email"
-          autoComplete="email"
+          required
+          placeholder="email@domain.com"
           value={email}
-          onChange={e => setEmail(e.target.value)}
+          onChange={e=>setEmail(e.target.value)}
+          className="input"
+          style={{padding:'12px 14px', borderRadius:10, border:'1px solid var(--card-border)'}}
         />
         <input
-          className="line-input"
-          placeholder="password"
           type="password"
-          autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+          required
+          placeholder="password"
           value={password}
-          onChange={e => setPassword(e.target.value)}
+          onChange={e=>setPassword(e.target.value)}
+          className="input"
+          style={{padding:'12px 14px', borderRadius:10, border:'1px solid var(--card-border)'}}
         />
+
+        {err && <div style={{color:'#b00020', fontSize:14}}>{err}</div>}
+
         <button
-          className="button"
-          onClick={submit}
+          type="submit"
           disabled={busy}
-          style={{ height: 46, marginTop: 6 }}
+          className="button"
+          style={{
+            padding:'12px 14px',
+            borderRadius:12,
+            fontWeight:800,
+            background:'#000',
+            color:'#fff',
+            opacity: busy ? .7 : 1
+          }}
         >
           {busy ? 'Please wait…' : 'Continue'}
         </button>
 
-        {error && <div className="muted" style={{ color: 'var(--danger, #b00020)' }}>{error}</div>}
-
-        <div style={{ textAlign: 'center', fontSize: 12, opacity: .7, marginTop: 8 }}>
-          By clicking continue, you agree to our <a className="link" href="#">Terms of Service</a> and <a className="link" href="#">Privacy Policy</a>
+        <div style={{textAlign:'center', color:'var(--muted)', fontSize:12, marginTop:6}}>
+          By clicking continue, you agree to our <u>Terms of Service</u> and <u>Privacy Policy</u>
         </div>
-      </div>
+      </form>
     </div>
   )
 }
