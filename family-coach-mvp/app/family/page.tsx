@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import '../family/family-ui.css'
-import { createClient } from '../../lib/supabaseClient'
+import './family-ui.css'
+import { createClient } from '../../lib/supabaseclient'
 
 type Family = {
   id: string
@@ -41,9 +41,8 @@ export default function FamilyPage() {
     else (kind === 'error' ? console.warn : console.log)(msg)
   }
 
-  // ------- helpers -------
   async function findFamilyId(userId: string): Promise<string | null> {
-    // 1) prefer family_members (less likely to be blocked by profile policies)
+    // Prefer membership table
     const fm = await supabase
       .from('family_members')
       .select('family_id')
@@ -52,18 +51,16 @@ export default function FamilyPage() {
       .maybeSingle()
     if ((fm.data as any)?.family_id) return (fm.data as any).family_id as string
 
-    // 2) fallback to own profile
+    // Fallback to own profile
     const pr = await supabase
       .from('profiles')
       .select('family_id')
       .eq('id', userId)
       .maybeSingle()
-    const fid = (pr.data as any)?.family_id || null
-    return fid
+    return ((pr.data as any)?.family_id as string) || null
   }
 
   async function ensureOwnerMembership(userId: string, familyId: string) {
-    // If the membership row is missing, try to insert owner
     const exists = await supabase
       .from('family_members')
       .select('user_id')
@@ -71,12 +68,20 @@ export default function FamilyPage() {
       .eq('family_id', familyId)
       .maybeSingle()
     if (!exists.data) {
-      await supabase
-        .from('family_members')
-        .insert({ family_id: familyId, user_id: userId, role: 'owner', can_manage_members: true } as any)
-        .select()
-        .maybeSingle()
-        .catch(() => {})
+      try {
+        await supabase
+          .from('family_members')
+          .insert({
+            family_id: familyId,
+            user_id: userId,
+            role: 'owner',
+            can_manage_members: true,
+          } as any)
+          .select()
+          .maybeSingle()
+      } catch {
+        // ignore; if policies block, page will still function as long as a row exists
+      }
     }
   }
 
@@ -89,7 +94,6 @@ export default function FamilyPage() {
     return (mine?.role === 'owner') || !!mine?.can_manage_members
   })()
 
-  // ------- load -------
   useEffect(() => {
     ;(async () => {
       setLoading(true)
@@ -104,12 +108,10 @@ export default function FamilyPage() {
 
       let famId = await findFamilyId(user.id)
 
-      // heal: if profile has family_id but membership missing, create it
+      // heal if profile has family_id but membership is missing
       if (famId) {
         await ensureOwnerMembership(user.id, famId)
       }
-
-      // try again from family_members after healing
       if (!famId) famId = await findFamilyId(user.id)
 
       if (!famId) {
@@ -125,7 +127,7 @@ export default function FamilyPage() {
         .maybeSingle()
       setFam((f.data as Family) || null)
 
-      // members (normalize profiles array->object)
+      // members (normalize profiles)
       const mem = await supabase
         .from('family_members')
         .select('user_id, role, can_manage_members, profiles(full_name)')
@@ -155,7 +157,6 @@ export default function FamilyPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ------- actions -------
   async function onRegenerate() {
     if (!fam) return
     if (!canManage) return notify('error', 'Only owner can regenerate')
@@ -205,7 +206,6 @@ export default function FamilyPage() {
     notify('success', 'Child added')
   }
 
-  // ------- UI -------
   if (loading) {
     return (
       <div className="container"><div className="muted">Loading family…</div></div>
