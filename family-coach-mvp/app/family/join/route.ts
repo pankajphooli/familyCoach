@@ -1,7 +1,7 @@
 // app/api/family/join/route.ts
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
-import { createAdminClient } from '../../../lib/supabaseAdmin'
+import { createAdminClient } from '../../lib/supabaseAdmin'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
