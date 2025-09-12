@@ -20,22 +20,8 @@ type Profile = {
   equipment?: string[]|null
 }
 
-type Recipe = {
-  name: string
-  dietary_pattern?: string|null
-  allergens?: string[]|null
-  tags?: string[]|null
-  ingredients?: string[]|null
-  cuisine?: string|null
-}
-
-type Exercise = {
-  name: string
-  tags?: string[]|null
-  equipment?: string[]|null
-  contraindications?: string[]|null
-  description?: string|null
-}
+type Recipe = { name: string; dietary_pattern?: string|null; allergens?: string[]|null; tags?: string[]|null; ingredients?: string[]|null; cuisine?: string|null }
+type Exercise = { name: string; tags?: string[]|null; equipment?: string[]|null; contraindications?: string[]|null; description?: string|null }
 
 type MainTab = 'diet' | 'workout'
 type SubTab = 'today' | 'week'
@@ -51,26 +37,17 @@ const MEAL_TIME: Record<string,string> = {
 function ymdLocal(d: Date){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}` }
 function normalizeName(s:string){ return (s||'').trim().toLowerCase() }
 function recipeLink(name?: string | null){ if(!name) return '#'; const q = encodeURIComponent(`${name} recipe`); return `https://www.google.com/search?q=${q}` }
-function mealTagFor(meal: Meal){
-  const t = (meal.meal_type||'').toLowerCase()
-  if(t.includes('break')) return 'Breakfast'
-  if(t.includes('lunch')) return 'Lunch'
-  return 'Dinner'
-}
-function pickFrom<T>(arr:T[], index:number, fallback:T): T{ return arr.length ? (arr[index % arr.length] || arr[0]) : fallback }
-
-function nextNDatesFromToday(n:number){
-  const start = new Date()
-  const arr:string[] = []
-  for(let i=0;i<n;i++){ const d = new Date(start); d.setDate(start.getDate()+i); arr.push(ymdLocal(d)) }
-  return arr
-}
+function mealTagFor(meal: Meal){ const t=(meal.meal_type||'').toLowerCase(); if(t.includes('break')) return 'Breakfast'; if(t.includes('lunch')) return 'Lunch'; return 'Dinner' }
+function pickFrom<T>(arr:T[], idx:number, fb:T){ return arr.length ? (arr[idx % arr.length] || arr[0]) : fb }
+function nextNDatesFromToday(n:number){ const s=new Date(); const out:string[]=[]; for(let i=0;i<n;i++){ const d=new Date(s); d.setDate(s.getDate()+i); out.push(ymdLocal(d)) } return out }
+function hasAny<T>(m:Record<string,T[]>){ return Object.values(m).some(v=>v && v.length>0) }
 
 export default function PlansPage(){
   const supabase = useMemo(()=>{
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-    return createSupabaseClient(url, anon)
+    return createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+    )
   }, [])
 
   const [busy, setBusy] = useState(false)
@@ -82,29 +59,26 @@ export default function PlansPage(){
   const [weekMeals, setWeekMeals] = useState<Record<string, Meal[]>>({})
   const [todayBlocks, setTodayBlocks] = useState<WorkoutBlock[]>([])
   const [weekBlocks, setWeekBlocks] = useState<Record<string, WorkoutBlock[]>>({})
+
   const [ingredientsFor, setIngredientsFor] = useState<string>('')
   const [ingredients, setIngredients] = useState<string[]>([])
   const [replacingId, setReplacingId] = useState<string|null>(null)
   const [altOptions, setAltOptions] = useState<string[]>([])
   const [profile, setProfile] = useState<Profile|null>(null)
+  const [signedIn, setSignedIn] = useState<boolean>(true)
 
   const todayStr = useMemo(()=> ymdLocal(new Date()), [])
-  // Rolling 7-day window starting today (per your request)
   const weekDates = useMemo(()=> nextNDatesFromToday(7), [])
   const [selectedWeekDate, setSelectedWeekDate] = useState<string>(todayStr)
-  const cacheKey = useRef<string>('')
+  const cacheKey = useRef<string>(`plans_cache_${weekDates[0]}`)
 
   function notify(kind:'error'|'success', msg:string){
-    if(typeof window !== 'undefined' && (window as any).toast){
-      (window as any).toast(kind, msg)
-    } else {
-      if(kind==='error') console.warn(msg); else console.log(msg)
-    }
+    const t = (typeof window!=='undefined' && (window as any).toast) || null
+    t ? (window as any).toast(kind,msg) : (kind==='error'?console.warn(msg):console.log(msg))
   }
 
-  // Try to hydrate from cache first (snappy mobile UX)
+  // Fast hydrate from cache (smoother mobile UX)
   useEffect(()=>{
-    cacheKey.current = `plans_cache_${weekDates[0]}`
     try{
       const raw = localStorage.getItem(cacheKey.current)
       if(raw){
@@ -122,29 +96,38 @@ export default function PlansPage(){
     setBusy(true)
     try{
       const { data: { user } } = await supabase.auth.getUser()
-      if(!user){ return }
+      if(!user){ setSignedIn(false); return }
+      setSignedIn(true)
+
+      // profile
       const profSel = 'dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
       const profRes = await supabase.from('profiles').select(profSel).eq('id', user.id).maybeSingle()
+      if(profRes.error) notify('error', `Profile load failed: ${profRes.error.message}`)
       setProfile((profRes.data || null) as Profile)
 
-      await ensureWeekIfNeeded(user.id, (profRes.data || {}) as Profile)
-      await loadAll(user.id)
+      // first try to load; if nothing found across the week, generate once then reload
+      const loaded = await loadAll(user.id)
+      if(!hasAny(loaded.byDateMeals) && !hasAny(loaded.byDateBlocks)){
+        const ok = await ensureWeekIfNeeded(user.id, (profRes.data||{}) as Profile)
+        if(ok) await loadAll(user.id)
+      }
 
       try{
-        localStorage.setItem(cacheKey.current, JSON.stringify({ weekMeals, weekBlocks, todayMeals, todayBlocks }))
+        localStorage.setItem(cacheKey.current, JSON.stringify({
+          weekMeals, weekBlocks, todayMeals, todayBlocks,
+        }))
       }catch{}
     } finally { setBusy(false) }
-  })() }, []) // once
+  })() }, []) // mount
 
+  // ---------------- generation rules ----------------
   function isRecipeAllowed(rec: Recipe, prof: Profile){
     const allergies = (prof.allergies||[]).map(normalizeName)
     const dislikes = (prof.dislikes||[]).map(normalizeName)
     const recAllergens: string[] = (rec.allergens || []).map((x:any)=>normalizeName(String(x)))
     if(allergies.length && recAllergens.some(a => allergies.includes(a))) return false
-
     const nameLc = normalizeName(rec.name || '')
-    if(dislikes.length && dislikes.some((d:string) => d && nameLc.includes(d))) return false
-
+    if(dislikes.length && dislikes.some((d:string)=> d && nameLc.includes(d))) return false
     const meatPolicy = normalizeName(prof.meat_policy||'')
     if(meatPolicy==='non_veg_chicken_only'){
       const banned = ['beef','pork','bacon','mutton','lamb','fish','salmon','tuna','prawn','shrimp','shellfish']
@@ -152,7 +135,6 @@ export default function PlansPage(){
     }
     return true
   }
-
   function isExerciseAllowed(ex: Exercise, prof:Profile){
     const eqp = (prof.equipment||[]).map(normalizeName)
     const need: string[] = (ex.equipment||[]).map((x:any)=>normalizeName(String(x)))
@@ -162,17 +144,14 @@ export default function PlansPage(){
     if(flags.length && contra.some(c => flags.includes(c))) return false
     return true
   }
-
-  async function candidatesFor(tag:string, prof:Profile, limit=50): Promise<Recipe[]>{
-    // permissive query + filter in JS -> robust even if recipe tagging is imperfect
+  async function candidatesFor(tag:string, prof:Profile, limit=60): Promise<Recipe[]>{
     let q:any = supabase.from('recipes').select('name, dietary_pattern, allergens, tags, ingredients, cuisine').limit(limit)
-    // prefer tag match if present
     q = q.ilike('tags', `%${tag}%`)
-    const { data } = await q
+    const { data, error } = await q
+    if(error) notify('error', `Recipes failed: ${error.message}`)
     const list = (data as Recipe[]) || []
     return list.filter((rec: Recipe) => isRecipeAllowed(rec, prof))
   }
-
   async function defaultsForMeals(dayIndex:number, prof: Profile){
     try{
       const [b, l, d] = await Promise.all([
@@ -189,7 +168,6 @@ export default function PlansPage(){
         { meal_type: 'dinner',    recipe_name: dName },
       ]
     }catch{
-      // resilient fallback bank
       const bank = [
         ['Oat Bowl','Chicken Wrap','Salmon & Greens'],
         ['Greek Yogurt Parfait','Turkey Salad','Pasta Primavera'],
@@ -207,9 +185,9 @@ export default function PlansPage(){
       ]
     }
   }
-
   async function pickWorkoutFor(dayIndex:number, prof:Profile){
-    const { data } = await supabase.from('exercises').select('name,tags,equipment,contraindications,description').limit(120)
+    const { data, error } = await supabase.from('exercises').select('name,tags,equipment,contraindications,description').limit(120)
+    if(error) notify('error', `Exercises failed: ${error.message}`)
     const exs = (data as Exercise[]) || []
     const allowed = exs.filter((ex:Exercise) => isExerciseAllowed(ex, prof))
     const a = pickFrom<Exercise>(allowed, dayIndex,   {name:'Glute bridge', description:'3×12'} as Exercise)
@@ -226,35 +204,34 @@ export default function PlansPage(){
 
   async function ensureWeekIfNeeded(userId: string, prof: Profile){
     try{
-      const flagKey = `plans_ensured_${weekDates[0]}`
-      const flag = typeof window !== 'undefined' ? localStorage.getItem(flagKey) : null
-      if(flag === '1'){ return }
+      // create plan/workout day rows for the rolling window
+      const [pds0, wds0] = await Promise.all([
+        supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', weekDates),
+        supabase.from('workout_days').select('id,date').eq('user_id', userId).in('date', weekDates),
+      ])
+      if(pds0.error) notify('error', pds0.error.message)
+      if(wds0.error) notify('error', wds0.error.message)
+
+      const havePd = new Set(((pds0.data||[]) as PlanDay[]).map(r=>r.date))
+      const haveWd = new Set(((wds0.data||[]) as WorkoutDay[]).map(r=>r.date))
+      const insPd = weekDates.filter(d=>!havePd.has(d)).map(date=>({ user_id:userId, date }))
+      const insWd = weekDates.filter(d=>!haveWd.has(d)).map(date=>({ user_id:userId, date }))
+      if(insPd.length){ const r=await supabase.from('plan_days').insert(insPd); if(r.error) notify('error', r.error.message) }
+      if(insWd.length){ const r=await supabase.from('workout_days').insert(insWd); if(r.error) notify('error', r.error.message) }
 
       const [pds, wds] = await Promise.all([
         supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', weekDates),
         supabase.from('workout_days').select('id,date').eq('user_id', userId).in('date', weekDates),
       ])
-      const havePd = new Set(((pds.data||[]) as PlanDay[]).map((r)=>r.date))
-      const haveWd = new Set(((wds.data||[]) as WorkoutDay[]).map((r)=>r.date))
-
-      const missingPd = weekDates.filter(d=>!havePd.has(d)).map(date=>({ user_id: userId, date }))
-      const missingWd = weekDates.filter(d=>!haveWd.has(d)).map(date=>({ user_id: userId, date }))
-      if(missingPd.length) await supabase.from('plan_days').insert(missingPd)
-      if(missingWd.length) await supabase.from('workout_days').insert(missingWd)
-
-      const [pds2, wds2] = await Promise.all([
-        supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', weekDates),
-        supabase.from('workout_days').select('id,date').eq('user_id', userId).in('date', weekDates),
-      ])
-      const pdByDate: Record<string, string> = {}; ((pds2.data||[]) as PlanDay[]).forEach((r)=> pdByDate[r.date]=r.id)
-      const wdByDate: Record<string, string> = {}; ((wds2.data||[]) as WorkoutDay[]).forEach((r)=> wdByDate[r.date]=r.id)
+      const pdByDate: Record<string,string> = {}; ((pds.data||[]) as PlanDay[]).forEach(r=>pdByDate[r.date]=r.id)
+      const wdByDate: Record<string,string> = {}; ((wds.data||[]) as WorkoutDay[]).forEach(r=>wdByDate[r.date]=r.id)
 
       const [mealsAll, blocksAll] = await Promise.all([
         supabase.from('meals').select('id,plan_day_id').in('plan_day_id', Object.values(pdByDate)),
         supabase.from('workout_blocks').select('id,workout_day_id').in('workout_day_id', Object.values(wdByDate)),
       ])
-      const pdWithMeals = new Set(((mealsAll.data||[]) as {id:string;plan_day_id:string}[]).map((m)=>m.plan_day_id))
-      const wdWithBlocks = new Set(((blocksAll.data||[]) as {id:string;workout_day_id:string}[]).map((b)=>b.workout_day_id))
+      const pdWithMeals = new Set(((mealsAll.data||[]) as any[]).map(m=>m.plan_day_id))
+      const wdWithBlocks = new Set(((blocksAll.data||[]) as any[]).map(b=>b.workout_day_id))
 
       const mealsToInsert:any[] = []
       const blocksToInsert:any[] = []
@@ -262,19 +239,18 @@ export default function PlansPage(){
         const date = weekDates[i]
         const pdId = pdByDate[date]; const wdId = wdByDate[date]
         if(pdId && !pdWithMeals.has(pdId)){
-          const defs = await defaultsForMeals(i, (prof||{}) as Profile)
+          const defs = await defaultsForMeals(i, prof||{})
           defs.forEach(m => mealsToInsert.push({ ...m, plan_day_id: pdId }))
         }
         if(wdId && !wdWithBlocks.has(wdId)){
-          const defsB = await pickWorkoutFor(i, (prof||{}) as Profile)
+          const defsB = await pickWorkoutFor(i, prof||{})
           defsB.forEach(b => blocksToInsert.push({ ...b, workout_day_id: wdId }))
         }
       }
-      if(mealsToInsert.length) await supabase.from('meals').insert(mealsToInsert)
-      if(blocksToInsert.length) await supabase.from('workout_blocks').insert(blocksToInsert)
-
-      if (typeof window !== 'undefined') localStorage.setItem(flagKey, '1')
-    }catch(e){ console.warn('ensureWeekIfNeeded error', e) }
+      if(mealsToInsert.length){ const r=await supabase.from('meals').insert(mealsToInsert); if(r.error) notify('error', r.error.message) }
+      if(blocksToInsert.length){ const r=await supabase.from('workout_blocks').insert(blocksToInsert); if(r.error) notify('error', r.error.message) }
+      return true
+    }catch(e){ notify('error','Could not generate week'); return false }
   }
 
   async function loadAll(userId: string){
@@ -282,6 +258,9 @@ export default function PlansPage(){
       supabase.from('plan_days').select('id,date').eq('user_id', userId).in('date', weekDates),
       supabase.from('workout_days').select('id,date').eq('user_id', userId).in('date', weekDates),
     ])
+    if(pdRes.error) notify('error', pdRes.error.message)
+    if(wdRes.error) notify('error', wdRes.error.message)
+
     const pds = (pdRes.data||[]) as PlanDay[]
     const wds = (wdRes.data||[]) as WorkoutDay[]
     const pdIds = pds.map(p=>p.id)
@@ -291,6 +270,8 @@ export default function PlansPage(){
       pdIds.length ? supabase.from('meals').select('*').in('plan_day_id', pdIds) : Promise.resolve({ data: [] } as any),
       wdIds.length ? supabase.from('workout_blocks').select('*').in('workout_day_id', wdIds) : Promise.resolve({ data: [] } as any),
     ])
+    if((mealsRes as any).error) notify('error', (mealsRes as any).error.message)
+    if((blocksRes as any).error) notify('error', (blocksRes as any).error.message)
 
     const meals = (mealsRes as any).data as Meal[] || []
     const blocks = (blocksRes as any).data as WorkoutBlock[] || []
@@ -304,17 +285,20 @@ export default function PlansPage(){
     setWeekBlocks(byDateBlocks)
     setTodayMeals(byDateMeals[todayStr] || [])
     setTodayBlocks(byDateBlocks[todayStr] || [])
+
+    // return for the caller to decide whether to generate
+    return { byDateMeals, byDateBlocks }
   }
 
+  // ---------- actions ----------
   async function openIngredients(meal: Meal){
     const recipe = meal.recipe_name || ''
-    setIngredientsFor(recipe)
-    setIngredients([])
-    const { data: rec } = await supabase.from('recipes').select('*').ilike('name', recipe).maybeSingle()
-    const list: string[] = (rec as Recipe | null)?.ingredients || []
+    setIngredientsFor(recipe); setIngredients([])
+    const { data, error } = await supabase.from('recipes').select('*').ilike('name', recipe).maybeSingle()
+    if(error) notify('error', error.message)
+    const list: string[] = (data as Recipe | null)?.ingredients || []
     setIngredients(list || [])
   }
-
   async function addIngredientsToGrocery(items: string[]){
     const { data: { user } } = await supabase.auth.getUser()
     if(!user){ notify('error','Sign in first'); return }
@@ -341,34 +325,21 @@ export default function PlansPage(){
     }
     notify('success','Ingredients added (quantities updated).')
   }
-
   async function loadReplacements(meal: Meal){
-    setReplacingId(meal.id)
-    setAltOptions([])
+    setReplacingId(meal.id); setAltOptions([])
     const p = (profile || {}) as Profile
     const tag = mealTagFor(meal)
     const current = normalizeName(meal.recipe_name||'')
-
-    async function querySet(applyTag:boolean){
-      let q:any = supabase.from('recipes').select('name, dietary_pattern, allergens, cuisine, tags').limit(100)
-      if(applyTag){ q = q.ilike('tags', `%${tag}%`) }
-      const { data } = await q
-      return (data as Recipe[]) || []
-    }
-
-    let candidates: Recipe[] = []
-    for(const applyTag of [true,false]){
-      const set = await querySet(applyTag)
-      const filtered = set.filter((r:Recipe)=> isRecipeAllowed(r, p) && normalizeName(r.name) !== current)
-      candidates = candidates.concat(filtered)
-      const seen = new Set<string>()
-      candidates = candidates.filter(r => { const k = normalizeName(r.name); if(seen.has(k)) return false; seen.add(k); return true })
-      if(candidates.length >= 12) break
-    }
-
-    setAltOptions(candidates.slice(0,12).map(r=>r.name))
+    let q:any = supabase.from('recipes').select('name, dietary_pattern, allergens, cuisine, tags').limit(120)
+    q = q.ilike('tags', `%${tag}%`)
+    const { data, error } = await q
+    if(error) notify('error', error.message)
+    const set = (data as Recipe[]) || []
+    const filtered = set.filter((r:Recipe)=> isRecipeAllowed(r, p) && normalizeName(r.name) !== current)
+    const seen = new Set<string>()
+    const uniq = filtered.filter(r=>{ const k=normalizeName(r.name); if(seen.has(k)) return false; seen.add(k); return true })
+    setAltOptions(uniq.slice(0,12).map(r=>r.name))
   }
-
   async function replaceMeal(mealId: string, name: string){
     await supabase.from('meals').update({ recipe_name: name }).eq('id', mealId)
     setReplacingId(null); setAltOptions([])
@@ -376,11 +347,10 @@ export default function PlansPage(){
     if(user) await loadAll(user.id)
   }
 
-  // --- UI helpers ------------------------------------------------------------
+  // ---------- UI helpers ----------
   const segBtn = (label:string, active:boolean, onClick: ()=>void) => (
     <button className={`segbtn ${active?'on':''}`} onClick={onClick}>{label}</button>
   )
-
   const subTabBar = (value:SubTab, set:(v:SubTab)=>void) => (
     <div className="subtabs" style={{display:'flex', gap:12, justifyContent:'center', marginBottom:8}}>
       <button className={`subbtn ${value==='today'?'active':''}`} onClick={()=>set('today')}>Today</button>
@@ -397,7 +367,6 @@ export default function PlansPage(){
               <div className="mr-left">{m.meal_type || 'Meal'}</div>
               <div className="mr-right">{MEAL_TIME[m.meal_type] || '—'}</div>
             </div>
-
             <div className="mr-second">
               <div className="mr-title">{m.recipe_name || 'TBD'}</div>
               <div className="mr-actions">
@@ -412,7 +381,6 @@ export default function PlansPage(){
       </div>
     )
   }
-
   function BlocksList(blocks: WorkoutBlock[]){
     return (
       <div className="daylist">
@@ -427,62 +395,63 @@ export default function PlansPage(){
     )
   }
 
-  // --------------------------------------------------------------------------
   return (
     <div className="container plans-wrap" style={{display:'grid', gap:16}}>
       <h1 className="page-title">Plans</h1>
 
-      {/* Main segmented control */}
+      {!signedIn && (
+        <div className="panel" style={{borderColor:'#e1a', color:'#e11'}}>
+          You’re not signed in. Sign in from the header to load your plan.
+        </div>
+      )}
+
       <div className="seg">
         {segBtn('Diet', mainTab==='diet', ()=>setMainTab('diet'))}
         {segBtn('Exercise', mainTab==='workout', ()=>setMainTab('workout'))}
       </div>
 
-      {/* Diet panel */}
       {mainTab==='diet' && (
         <section className="panel">
           {subTabBar(dietTab, setDietTab)}
-
-          {dietTab==='today' ? (
-            MealsList(todayMeals)
-          ) : (
-            <>
-              <div className="chips" style={{marginBottom:6}}>
-                {weekDates.map(d => (
-                  <button key={d} className={`chip ${selectedWeekDate===d?'on':''}`} onClick={()=>setSelectedWeekDate(d)}>
-                    {new Date(d).toLocaleDateString(undefined, { weekday:'short', day:'2-digit' })}
-                  </button>
-                ))}
-              </div>
-              {MealsList(weekMeals[selectedWeekDate] || [])}
-            </>
-          )}
+          {dietTab==='today'
+            ? MealsList(todayMeals)
+            : (
+              <>
+                <div className="chips" style={{marginBottom:6}}>
+                  {weekDates.map(d => (
+                    <button key={d} className={`chip ${selectedWeekDate===d?'on':''}`} onClick={()=>setSelectedWeekDate(d)}>
+                      {new Date(d).toLocaleDateString(undefined, { weekday:'short', day:'2-digit' })}
+                    </button>
+                  ))}
+                </div>
+                {MealsList(weekMeals[selectedWeekDate] || [])}
+              </>
+            )
+          }
         </section>
       )}
 
-      {/* Workout panel */}
       {mainTab==='workout' && (
         <section className="panel">
           {subTabBar(workoutTab, setWorkoutTab)}
-
-          {workoutTab==='today' ? (
-            BlocksList(todayBlocks)
-          ) : (
-            <>
-              <div className="chips" style={{marginBottom:6}}>
-                {weekDates.map(d => (
-                  <button key={d} className={`chip ${selectedWeekDate===d?'on':''}`} onClick={()=>setSelectedWeekDate(d)}>
-                    {new Date(d).toLocaleDateString(undefined, { weekday:'short', day:'2-digit' })}
-                  </button>
-                ))}
-              </div>
-              {BlocksList(weekBlocks[selectedWeekDate] || [])}
-            </>
-          )}
+          {workoutTab==='today'
+            ? BlocksList(todayBlocks)
+            : (
+              <>
+                <div className="chips" style={{marginBottom:6}}>
+                  {weekDates.map(d => (
+                    <button key={d} className={`chip ${selectedWeekDate===d?'on':''}`} onClick={()=>setSelectedWeekDate(d)}>
+                      {new Date(d).toLocaleDateString(undefined, { weekday:'short', day:'2-digit' })}
+                    </button>
+                  ))}
+                </div>
+                {BlocksList(weekBlocks[selectedWeekDate] || [])}
+              </>
+            )
+          }
         </section>
       )}
 
-      {/* Ingredients modal */}
       {ingredientsFor && (
         <div className="modal">
           <div className="modal-card">
@@ -501,7 +470,6 @@ export default function PlansPage(){
         </div>
       )}
 
-      {/* Replace modal */}
       {replacingId && (
         <div className="modal">
           <div className="modal-card">
