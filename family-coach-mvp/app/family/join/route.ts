@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { createAdminClient } from '../../../lib/supabaseAdmin'
+import { createAdminClient } from '../../lib/supabaseAdmin'
 
 // Force this to run on the server every time (no static caching)
 export const dynamic = 'force-dynamic'
