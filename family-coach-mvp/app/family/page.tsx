@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createClient } from '../lib/supabaseClient' // keep the capital C
+import { createClient } from '../../lib/supabaseClient' // keep the capital C
 
 type Family = { id: string; name: string | null; invite_code: string | null }
 type Profile = { id: string; full_name: string | null; family_id?: string | null }
