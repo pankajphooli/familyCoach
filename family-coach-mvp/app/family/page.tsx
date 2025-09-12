@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createClient } from '../../lib/supabaseClient' // keep the capital C
+import { createClient } from '../../lib/supabaseClient'
 
 type Family = { id: string; name: string | null; invite_code: string | null }
 type Profile = { id: string; full_name: string | null; family_id?: string | null }
@@ -200,33 +200,33 @@ export default function FamilyPage() {
       </div>
 
       {/* Members card */}
-      <section className="card" style={{ display: 'grid', gap: 12 }}>
+      <section className="card" style={{ display: 'grid', gap: 8 }}>
         <div className="text-xl font-extrabold">Members</div>
 
-        <ul className="grid gap-3">
+        <ul className="grid">
           {members.map((m, idx) => (
-            <li key={m.user_id} className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="opacity-60">{idx + 1}.</span>
-                <span className="font-bold">{m.name || 'Member'}</span>
-                {m.role === 'owner' && <span className="chip">owner</span>}
-                {m.you && <span className="chip">you</span>}
+            <li key={m.user_id} className="fam-row">
+              <div className="fam-left">
+                <span className="idx">{idx + 1}.</span>
+                <span className="name">{m.name || 'Member'}</span>
+                {m.role === 'owner' && <span className="meta">owner</span>}
+                {m.you && <span className="meta">you</span>}
               </div>
-              <button className="button-outline" onClick={() => removeAdult(m.user_id)}>Remove</button>
+              <button className="button-outline slim" onClick={() => removeAdult(m.user_id)}>Remove</button>
             </li>
           ))}
 
           {kids.map((k, j) => {
             const n = members.length + j + 1
             return (
-              <li key={k.id} className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="opacity-60">{n}.</span>
-                  <span className="font-bold">{k.name}</span>
-                  <span className="chip">child</span>
-                  {k.dob && <span className="opacity-70">DOB {new Date(k.dob).toLocaleDateString()}</span>}
+              <li key={k.id} className="fam-row">
+                <div className="fam-left">
+                  <span className="idx">{n}.</span>
+                  <span className="name">{k.name}</span>
+                  <span className="meta">child</span>
+                  {k.dob && <span className="meta">DOB {new Date(k.dob).toLocaleDateString()}</span>}
                 </div>
-                <button className="button-outline" onClick={() => removeKid(k.id)}>Remove</button>
+                <button className="button-outline slim" onClick={() => removeKid(k.id)}>Remove</button>
               </li>
             )
           })}
