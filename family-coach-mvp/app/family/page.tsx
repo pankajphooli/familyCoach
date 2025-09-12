@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import '../family/family-ui.css'
-import { createClient } from '../lib/supabaseClient'
+import { createClient } from '../../lib/supabaseClient'
 
 type Family = { id: string; name: string | null; code?: string | null; invite_code?: string | null; join_code?: string | null }
 type Profile = { id: string; full_name: string | null }
