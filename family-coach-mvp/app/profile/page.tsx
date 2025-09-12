@@ -22,7 +22,8 @@ export default function ProfilePage(){
       <h1 className="text-2xl font-semibold">Profile</h1>
 
       <div className="card" style={{display:'grid', gap:8}}>
-        <Link className="link" href="/profile">Your details</Link>
+        {/* ✅ point to the actual details page */}
+        <Link className="link" href="/profile/details">Your details</Link>
         <Link className="link" href="/family">Family</Link>
       </div>
 
