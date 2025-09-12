@@ -1,75 +1,77 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import { createClient } from '../../../lib/supabaseClient'
+import { useEffect, useMemo, useState } from 'react'
+import { createClient } from '../../lib/supabaseClient'
 
-type ProfileRec = Record<string, any>
-
-function arrish(v:any){
-  if(!v) return ''
-  if(Array.isArray(v)) return v.join(', ')
-  return String(v)
+type Profile = {
+  full_name?: string | null
+  sex?: string | null
+  dob?: string | null
+  height_cm?: number | null
+  current_weight?: number | null
+  goal_weight?: number | null
+  goal_target_date?: string | null
+  activity_level?: string | null
+  dietary_pattern?: string | null
+  allergies?: string[] | null
+  dislikes?: string[] | null
+  cuisine_prefs?: string[] | null
+  injuries?: string[] | null
+  health_conditions?: string[] | null
+  equipment?: string[] | null
 }
 
-function Row({label, value}:{label:string; value:any}){
-  return (
-    <div className="row" style={{display:'grid', gridTemplateColumns:'160px 1fr', gap:8, alignItems:'baseline'}}>
-      <div style={{fontWeight:700, opacity:.8}}>{label}</div>
-      <div>{value ?? '—'}</div>
-    </div>
-  )
-}
-
-export default function ProfileDetailsPage(){
-  const supabase = createClient()
-  const [loading, setLoading] = useState(true)
-  const [profile, setProfile] = useState<ProfileRec|null>(null)
+export default function ProfilePage(){
+  const supabase = useMemo(()=> createClient(), [])
+  const [p, setP] = useState<Profile|null>(null)
+  const [msg, setMsg] = useState<string>('')
 
   useEffect(()=>{ (async()=>{
-    const { data: { user } } = await supabase.auth.getUser()
-    if(!user){ setLoading(false); return }
-    // Pull everything; we’ll render only what exists
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle()
-    if(!error) setProfile(data as ProfileRec)
-    setLoading(false)
+    try{
+      const { data:{ user } } = await supabase.auth.getUser()
+      if(!user){ setMsg('Please sign in.'); return }
+      const sel =
+        'full_name, sex, dob, height_cm, current_weight, goal_weight, goal_target_date, activity_level, '+
+        'dietary_pattern, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
+      const res = await supabase.from('profiles').select(sel).eq('id', user.id).maybeSingle()
+      if(res.error){ setMsg(res.error.message); return }
+      setP(res.data as Profile)
+    }catch(e:any){ setMsg('Failed to load profile') }
   })() }, [supabase])
 
+  if(msg) return <div className="container"><h1 className="text-2xl font-semibold">Your details</h1><div className="muted">{msg}</div></div>
+  if(!p) return <div className="container"><h1 className="text-2xl font-semibold">Your details</h1><div className="muted">Loading…</div></div>
+
+  const fmt = (d?:string|null)=> d ? new Date(d).toLocaleDateString() : '—'
+  const list = (a?:string[]|null)=> a && a.length ? a.join(', ') : '—'
+
   return (
-    <div className="container" style={{paddingBottom:80, display:'grid', gap:16}}>
-      <h1 className="text-2xl font-semibold">Your Details</h1>
+    <div className="container" style={{display:'grid', gap:16}}>
+      <h1 className="text-2xl font-semibold">Your details</h1>
 
-      {loading ? (
-        <div className="panel">Loading…</div>
-      ) : !profile ? (
-        <div className="panel">
-          No profile found. <Link className="link" href="/onboarding">Complete onboarding</Link>.
-        </div>
-      ) : (
-        <div className="card" style={{display:'grid', gap:10}}>
-          <Row label="Full name" value={profile.full_name} />
-          <Row label="Sex" value={profile.sex} />
-          <Row label="Date of birth" value={profile.dob ? new Date(profile.dob).toLocaleDateString() : null} />
-          <Row label="Height (cm)" value={profile.height_cm} />
-          <Row label="Current weight (kg)" value={profile.weight_kg} />
-          <Row label="Target weight (kg)" value={profile.target_weight_kg ?? profile.goal_weight} />
-          <Row label="Target date" value={profile.target_date ? new Date(profile.target_date).toLocaleDateString() : null} />
-          <Row label="Activity level" value={profile.activity_level} />
-          <Row label="Dietary pattern" value={profile.dietary_pattern} />
-          <Row label="Meat policy" value={profile.meat_policy} />
-          <Row label="Allergies" value={arrish(profile.allergies)} />
-          <Row label="Dislikes" value={profile.dislikes} />
-          <Row label="Cuisines" value={arrish(profile.cuisine_prefs) || arrish(profile.cuisines)} />
-          <Row label="Injuries" value={arrish(profile.injuries)} />
-          <Row label="Health conditions" value={arrish(profile.health_conditions) || arrish(profile.conditions)} />
-          <Row label="Available equipment" value={arrish(profile.equipment)} />
+      <section className="card" style={{display:'grid', gap:8}}>
+        <div><b>Name:</b> {p.full_name || '—'}</div>
+        <div><b>Sex:</b> {p.sex || '—'}</div>
+        <div><b>Date of birth:</b> {fmt(p.dob)}</div>
+        <div><b>Height:</b> {p.height_cm ? `${p.height_cm} cm` : '—'}</div>
+        <div><b>Current weight:</b> {p.current_weight ?? '—'} {p.current_weight!=null ? 'kg' : ''}</div>
+        <div><b>Goal weight:</b> {p.goal_weight ?? '—'} {p.goal_weight!=null ? 'kg' : ''}</div>
+        <div><b>Target date:</b> {fmt(p.goal_target_date)}</div>
+        <div><b>Activity level:</b> {p.activity_level || '—'}</div>
+      </section>
 
-          <div className="flex" style={{gap:10, marginTop:6}}>
-            <Link className="button" href="/onboarding">Edit</Link>
-            <Link className="button-outline" href="/profile" style={{marginLeft:6}}>Back</Link>
-          </div>
-        </div>
-      )}
+      <section className="card" style={{display:'grid', gap:8}}>
+        <div><b>Dietary pattern:</b> {p.dietary_pattern || '—'}</div>
+        <div><b>Allergies:</b> {list(p.allergies)}</div>
+        <div><b>Dislikes:</b> {list(p.dislikes)}</div>
+        <div><b>Cuisine preferences:</b> {list(p.cuisine_prefs)}</div>
+      </section>
+
+      <section className="card" style={{display:'grid', gap:8}}>
+        <div><b>Injuries:</b> {list(p.injuries)}</div>
+        <div><b>Health conditions:</b> {list(p.health_conditions)}</div>
+        <div><b>Equipment:</b> {list(p.equipment)}</div>
+      </section>
     </div>
   )
 }
