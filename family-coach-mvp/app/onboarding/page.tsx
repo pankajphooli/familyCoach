@@ -33,6 +33,12 @@ const SEX_CHOICES = [
   { key: 'other', label: 'Other' },
 ]
 
+function ymdLocal(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 function cleanList(list: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
@@ -56,9 +62,10 @@ export default function OnboardingPage() {
   // form fields
   const [fullName, setFullName] = useState('')
   const [sex, setSex] = useState<string>('male')
-  const [height, setHeight] = useState<string>('')       // cm
-  const [goalWeight, setGoalWeight] = useState<string>('') // kg
-  const [goalDate, setGoalDate] = useState<string>('')     // yyyy-mm-dd
+  const [height, setHeight] = useState<string>('')          // cm
+  const [currentWeight, setCurrentWeight] = useState<string>('') // kg ← NEW
+  const [goalWeight, setGoalWeight] = useState<string>('')       // kg
+  const [goalDate, setGoalDate] = useState<string>('')           // yyyy-mm-dd
 
   const [diet, setDiet] = useState<string>('veg')
   const [allergies, setAllergies] = useState<string[]>([])
@@ -96,7 +103,7 @@ export default function OnboardingPage() {
     (window as any)?.toast?.(kind, msg)
   }
 
-  // Prefill from existing profile
+  // Prefill from existing profile + latest weight
   useEffect(() => {
     ;(async () => {
       setLoading(true)
@@ -129,6 +136,16 @@ export default function OnboardingPage() {
         setInjuries(p.injuries || [])
         setConditions(p.health_conditions || [])
         setEquipment(p.equipment || [])
+
+        // latest logged weight
+        const w = await supabase
+          .from('weights')
+          .select('date, weight_kg')
+          .eq('user_id', user.id)
+          .order('date', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (w.data?.weight_kg != null) setCurrentWeight(String(w.data.weight_kg))
       } finally {
         setLoading(false)
       }
@@ -141,6 +158,7 @@ export default function OnboardingPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { notify('error', 'Please sign in first'); return }
 
+      // 1) Upsert profile core
       const payload: any = {
         id: user.id,
         full_name: fullName.trim() || null,
@@ -166,8 +184,30 @@ export default function OnboardingPage() {
 
       if (up.error) { notify('error', up.error.message); return }
 
+      // 2) Save today's weight if provided
+      const wt = currentWeight ? Number(currentWeight) : NaN
+      if (!Number.isNaN(wt)) {
+        const today = ymdLocal()
+        // try update today row; if none, insert
+        const ex = await supabase
+          .from('weights')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('date', today)
+          .maybeSingle()
+
+        if (ex.data?.id) {
+          await supabase.from('weights').update({ weight_kg: wt }).eq('id', ex.data.id)
+        } else {
+          await supabase.from('weights').insert({ user_id: user.id, date: today, weight_kg: wt })
+        }
+
+        // Optional: also write to profiles.current_weight if column exists (ignore errors)
+        await supabase.from('profiles').update({ current_weight: wt } as any).eq('id', user.id)
+      }
+
       notify('success', 'Saved your details')
-      router.push('/profile') // ← go to “Your details” page
+      router.push('/profile') // go to “Your details”
     } finally {
       setSaving(false)
     }
@@ -211,7 +251,17 @@ export default function OnboardingPage() {
             </div>
           </div>
 
-          <div className="grid-2">
+          <div className="grid-3">
+            <div>
+              <label className="lbl">Current weight (kg)</label>
+              <input
+                className="pill-input"
+                inputMode="decimal"
+                placeholder="e.g., 82"
+                value={currentWeight}
+                onChange={e => setCurrentWeight(e.target.value)}
+              />
+            </div>
             <div>
               <label className="lbl">Goal weight (kg)</label>
               <input className="pill-input" inputMode="decimal" placeholder="e.g., 78" value={goalWeight} onChange={e => setGoalWeight(e.target.value)} />
