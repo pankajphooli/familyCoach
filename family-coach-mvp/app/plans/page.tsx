@@ -113,7 +113,7 @@ export default function PlansPage(){
 
   
   const monday = useMemo(()=> mondayOfWeek(new Date()), [])
-  const weekDates = useMemo(()=> rangeMonToSun(monday).map(ymdLocal), [monday])
+//  const weekDates = useMemo(()=> rangeMonToSun(monday).map(ymdLocal), [monday])
   const [weekSel, setWeekSel] = useState<string>(todayStr)
 
   function notify(kind:'error'|'success', msg:string){
