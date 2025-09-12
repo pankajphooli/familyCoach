@@ -179,3 +179,12 @@ hr{ border: none; border-top: 1px solid var(--card-border); margin: 16px 0; }
 /* Bottom nav bullet fix */
 .bottom-nav, .bottom-nav ul, .bottom-nav li { list-style: none; margin: 0; padding: 0; }
 
+.chips{ display:flex; gap:10px; overflow-x:auto; padding:8px 2px 12px; }
+.chip{
+  padding:10px 14px; border-radius:999px;
+  border:1px solid #d9dbe0; background:#eef0f4; color:#111; font-weight:700;
+  white-space:nowrap; cursor:pointer;
+}
+.chip.on{ background:#111; color:#fff; border-color:#111; }
+.dark .chip{ border-color:rgba(255,255,255,.22); background:rgba(255,255,255,.12); color:#fff; }
+.dark .chip.on{ background:#fff; color:#000; border-color:#fff; }
