@@ -188,3 +188,45 @@ hr{ border: none; border-top: 1px solid var(--card-border); margin: 16px 0; }
 .chip.on{ background:#111; color:#fff; border-color:#111; }
 .dark .chip{ border-color:rgba(255,255,255,.22); background:rgba(255,255,255,.12); color:#fff; }
 .dark .chip.on{ background:#fff; color:#000; border-color:#fff; }
+
+
+
+/* Family rows */
+.fam-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:10px 0;
+  border-bottom:1px solid var(--card-border);
+  flex-wrap:nowrap;           /* keep on one line */
+}
+.fam-row:last-child{ border-bottom:none; }
+
+.fam-left{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;               /* allow name to ellipsize */
+}
+.fam-left .idx{ opacity:.6; }
+.fam-left .name{
+  font-weight:700;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+/* plain meta labels (owner / you / child) */
+.meta{
+  font-weight:600;
+  opacity:.7;                /* no background, just subtle text */
+  white-space:nowrap;
+}
+
+/* slimmer button so it fits same line on small screens */
+.button-outline.slim{
+  padding:8px 12px;
+  border-radius:12px;
+  white-space:nowrap;
+}
