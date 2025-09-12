@@ -1,8 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { createClient } from '../../lib/supabaseClient' // ← change casing if your file differs
-import { useRouter } from 'next/navigation'
+import { createClient } from '../../lib/supabaseClient' // adjust casing if needed
 
 type Member = {
   user_id: string
@@ -11,13 +10,10 @@ type Member = {
   can_manage_members: boolean
   isYou?: boolean
 }
-
 type Dependent = { id: string; name: string; dob: string | null }
 
 export default function FamilyPage(){
   const supabase = useMemo(()=>createClient(), [])
-  const router = useRouter()
-
   const [loading, setLoading] = useState(true)
   const [needSignIn, setNeedSignIn] = useState(false)
   const [userId, setUserId] = useState<string>('')
@@ -32,6 +28,7 @@ export default function FamilyPage(){
   // create/join inputs
   const [newFamilyName, setNewFamilyName] = useState('')
   const [joinCode, setJoinCode] = useState('')
+  const [joinErr, setJoinErr] = useState<string>('')
 
   // add-kid inputs
   const [kidName, setKidName] = useState('')
@@ -46,7 +43,6 @@ export default function FamilyPage(){
   }
 
   function nameFromProfiles(p: any): string {
-    // Supabase sometimes returns an object for single relation, or an array; be defensive
     if (!p) return 'Member'
     if (Array.isArray(p)) return p[0]?.full_name ?? 'Member'
     return p.full_name ?? 'Member'
@@ -59,7 +55,7 @@ export default function FamilyPage(){
       if(!user){ setNeedSignIn(true); return }
       setUserId(user.id)
 
-      // get your profile
+      // your profile
       const { data: prof } = await supabase
         .from('profiles')
         .select('id, full_name, family_id')
@@ -70,7 +66,7 @@ export default function FamilyPage(){
       setFamilyId(famId)
 
       if(famId){
-        // family basic info
+        // family basic
         const { data: fam } = await supabase
           .from('families')
           .select('id,name,invite_code')
@@ -81,12 +77,12 @@ export default function FamilyPage(){
           setInviteCode(String((fam as any).invite_code || '').toLowerCase())
         }
 
-        // members with profile names
+        // members
         const memRes = await supabase
           .from('family_members')
           .select('user_id, role, can_manage_members, profiles(full_name)')
           .eq('family_id', famId)
-          .order('role', { ascending: false }) // owners first
+          .order('role', { ascending: false })
         const rows = (memRes.data || []) as any[]
         const enriched: Member[] = rows.map(r=>({
           user_id: r.user_id,
@@ -97,7 +93,7 @@ export default function FamilyPage(){
         }))
         setMembers(enriched)
 
-        // dependents (kids)
+        // kids
         const depRes = await supabase
           .from('dependents')
           .select('id,name,dob')
@@ -105,7 +101,6 @@ export default function FamilyPage(){
           .order('name')
         setKids(((depRes.data || []) as any[]).map(r=>({ id: r.id, name: r.name, dob: r.dob })))
       } else {
-        // clear lists if no family
         setMembers([])
         setKids([])
       }
@@ -123,7 +118,7 @@ export default function FamilyPage(){
     if(!newFamilyName.trim()){ toast('error','Enter a family name'); return }
     setBusyCreate(true)
     try{
-      // ensure unique code (light retry)
+      // unique-ish code
       let code = makeCode()
       for(let i=0;i<3;i++){
         const { data: exists } = await supabase.from('families').select('id').eq('invite_code', code).maybeSingle()
@@ -158,24 +153,32 @@ export default function FamilyPage(){
   }
 
   async function onJoinFamily(){
-    if(!userId){ toast('error','Sign in first'); return }
+    setJoinErr('')
+    if(!userId){ setJoinErr('Please sign in first'); return }
     const code = joinCode.trim().toLowerCase()
-    if(!code){ toast('error','Enter the invite code'); return }
+    if(!code){ setJoinErr('Enter the invite code'); return }
     setBusyJoin(true)
     try{
-      // use the secured server route (service role)
       const res = await fetch('/api/family/join', {
         method:'POST',
         headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ code })
+        body: JSON.stringify({ code }),
+        credentials: 'include' // make sure cookies go with the request
       })
-      const j = await res.json()
-      if(!res.ok) throw new Error(j?.error || 'Join failed')
+      const j = await res.json().catch(()=> ({}))
+      if(!res.ok){
+        const msg = j?.error || `Join failed (${res.status})`
+        setJoinErr(msg)
+        toast('error', msg)
+        return
+      }
       toast('success','Joined family')
       setJoinCode('')
       await load()
     }catch(e:any){
-      toast('error', e?.message || 'Could not join family')
+      const msg = e?.message || 'Network error while joining'
+      setJoinErr(msg)
+      toast('error', msg)
     }finally{
       setBusyJoin(false)
     }
@@ -213,7 +216,6 @@ export default function FamilyPage(){
     <div className="container" style={{ display:'grid', gap:14, paddingBottom:84 }}>
       <h1 className="text-2xl font-semibold">Family</h1>
 
-      {/* No family yet → show Create / Join panels */}
       {!familyId && (
         <>
           <section className="card" style={{ display:'grid', gap:12 }}>
@@ -241,6 +243,7 @@ export default function FamilyPage(){
               autoCapitalize="off"
               autoCorrect="off"
             />
+            {joinErr ? <div className="muted" style={{ color:'var(--danger, #b00020)' }}>{joinErr}</div> : null}
             <div className="actions">
               <button className="button-outline" disabled={busyJoin} onClick={onJoinFamily}>
                 {busyJoin ? 'Joining…' : 'Join family'}
@@ -250,7 +253,6 @@ export default function FamilyPage(){
         </>
       )}
 
-      {/* Family summary */}
       {familyId && (
         <>
           <section className="card" style={{ display:'grid', gap:10 }}>
@@ -268,9 +270,7 @@ export default function FamilyPage(){
 
           <section className="card" style={{ display:'grid', gap:10 }}>
             <h2 className="text-xl font-medium">Members</h2>
-            {members.length === 0 && (
-              <div className="muted">No members yet.</div>
-            )}
+            {members.length === 0 && <div className="muted">No members yet.</div>}
             {members.length > 0 && (
               <ul className="grid" style={{ gap:10 }}>
                 {members.map(m=>(
