@@ -19,6 +19,7 @@ type Profile = {
   injuries?: string[] | null
   health_conditions?: string[] | null
   equipment?: string[] | null
+  dob?: string | null            // NEW: DOB
 }
 
 const DIET_CHOICES = [
@@ -68,6 +69,7 @@ export default function OnboardingPage() {
   const [currentWeight, setCurrentWeight] = useState('')   // kg
   const [goalWeight, setGoalWeight] = useState('')         // kg
   const [goalDate, setGoalDate] = useState('')             // yyyy-mm-dd
+  const [dob, setDob] = useState('')                       // NEW: yyyy-mm-dd
 
   // diet & exercise arrays
   const [diet, setDiet] = useState('veg')
@@ -78,7 +80,6 @@ export default function OnboardingPage() {
   const [conditions, setConditions] = useState<string[]>([])
   const [equipment, setEquipment] = useState<string[]>([])
 
-  // chip editors use local input state so typing doesn’t reshuffle siblings
   function ChipEditor({
     label, items, setItems, placeholder
   }: {
@@ -89,25 +90,20 @@ export default function OnboardingPage() {
   }){
     const [val, setVal] = useState('')
     const inpRef = useRef<HTMLInputElement|null>(null)
-
     function add(){
       const v = val.trim()
       if(!v) return
       setItems(cleanList([...items, v]))
       setVal('')
-      // keep focus on mobile
       requestAnimationFrame(()=> inpRef.current?.focus())
     }
     function remove(idx:number){
       const next = [...items]; next.splice(idx,1); setItems(next)
       requestAnimationFrame(()=> inpRef.current?.focus())
     }
-
     return (
       <div className="chip-editor" style={{marginTop:10}}>
         <label className="lbl">{label}</label>
-
-        {/* row 1: existing chips only (no input here to avoid DOM shifting) */}
         <div className="chips wrap">
           {items.map((t,i)=>(
             <span key={`${t}-${i}`} className="chip pill">
@@ -116,8 +112,6 @@ export default function OnboardingPage() {
             </span>
           ))}
         </div>
-
-        {/* row 2: stable input row (won’t be re-ordered while typing) */}
         <div className="chip-input-row">
           <input
             ref={inpRef}
@@ -145,7 +139,7 @@ export default function OnboardingPage() {
       if(!user){ setMsg({kind:'error', text:'Please sign in to continue.'}); return }
 
       const sel =
-        'full_name, sex, height_cm, goal_weight, goal_target_date, '+
+        'full_name, sex, height_cm, goal_weight, goal_target_date, dob, ' + // NEW: dob in select
         'dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
       const prof = await supabase.from('profiles').select(sel).eq('id', user.id).maybeSingle()
       const p = (prof.data || {}) as Profile
@@ -155,6 +149,7 @@ export default function OnboardingPage() {
       if(p.height_cm!=null) setHeight(String(p.height_cm))
       if(p.goal_weight!=null) setGoalWeight(String(p.goal_weight))
       if(p.goal_target_date) setGoalDate(p.goal_target_date.substring(0,10))
+      if(p.dob) setDob(p.dob.substring(0,10))                       // NEW: prefill
 
       if(p.dietary_pattern) setDiet(p.dietary_pattern)
       else if(p.meat_policy) setDiet(p.meat_policy)
@@ -192,6 +187,7 @@ export default function OnboardingPage() {
         height_cm: height ? Number(height) : null,
         goal_weight: goalWeight ? Number(goalWeight) : null,
         goal_target_date: goalDate || null,
+        dob: dob || null,                                      // NEW: persist
         dietary_pattern: diet || null,
         meat_policy: diet || null,
         allergies: cleanList(allergies),
@@ -214,7 +210,6 @@ export default function OnboardingPage() {
         }else{
           await supabase.from('weights').insert({ user_id: user.id, date: today, weight_kg: wt })
         }
-        // best-effort mirror
         await supabase.from('profiles').update({ current_weight: wt } as any).eq('id', user.id)
       }
 
@@ -237,6 +232,10 @@ export default function OnboardingPage() {
         <div className="grid">
           <label className="lbl">Full name</label>
           <input className="line-input" placeholder="Full name" value={fullName} onChange={e=>setFullName(e.target.value)} />
+
+          {/* NEW: DOB row (kept simple to avoid layout shifts) */}
+          <label className="lbl" style={{marginTop:8}}>Date of birth</label>
+          <input className="pill-input" type="date" value={dob} onChange={e=>setDob(e.target.value)} />
 
           <div className="grid-2">
             <div>
