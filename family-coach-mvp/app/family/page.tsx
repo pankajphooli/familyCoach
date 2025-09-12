@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import '../family/family-ui.css'
-import { createClient } from '../lib/supabaseClient'
+import { createClient } from '../../lib/supabaseClient'
 
 type Family = {
   id: string
