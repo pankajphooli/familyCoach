@@ -173,3 +173,22 @@
   font-weight:800; font-size:14px; line-height:1;
 }
 .dark .chipbtn{ background:transparent; color:#fff; border-color:#fff; }
+
+/* Make meal title and its row left-aligned */
+.mr-second{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:6px;
+  align-items:flex-start;     /* <- left-align contents */
+}
+
+.mr-title{
+  font-size:16px;
+  font-weight:600;
+  text-align:left;            /* <- ensure text is left-aligned */
+  align-self:flex-start;      /* <- ignore any parent centering */
+}
+
+/* If a global rule still forces centering, keep this as last resort */
+.mr-title, .mr-actions { text-align:left !important; }
