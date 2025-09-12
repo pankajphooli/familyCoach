@@ -420,6 +420,27 @@ export default function PlansPage(){
     if(user) await loadAll(user.id)
   }
 
+  // Fetch a recipe's ingredients and open the modal
+async function openIngredients(meal: Meal){
+  const recipe = meal.recipe_name || ''
+  setIngredientsFor(recipe)
+  setIngredients([])
+
+  const { data, error } = await supabase
+    .from('recipes')
+    .select('*')
+    .ilike('name', recipe)
+    .maybeSingle()
+
+  if (error) {
+    notify('error', `Could not load ingredients: ${error.message}`)
+    return
+  }
+
+  const list: string[] = (data as Recipe | null)?.ingredients || []
+  setIngredients(list || [])
+}
+
   // ---------- UI helpers ----------
   const Segmented = ({value,onChange}:{value:MainTab; onChange:(v:MainTab)=>void}) => (
     <div className="seg">
