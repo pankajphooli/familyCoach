@@ -58,8 +58,7 @@ function nextNDatesFromToday(n:number){
 }
 
 function ymdLocal(d: Date){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}` }
-const weekDates = useMemo(()=> nextNDatesFromToday(7), []);
-const [selectedWeekDate, setSelectedWeekDate] = useState(weekDates[0]);
+
 
 function normalizeName(s:string){ return (s||'').trim().toLowerCase() }
 function recipeLink(name?: string | null){ if(!name) return '#'; const q = encodeURIComponent(`${name} recipe`); return `https://www.google.com/search?q=${q}` }
@@ -90,7 +89,8 @@ export default function PlansPage(){
   const [replacingId, setReplacingId] = useState<string|null>(null)
   const [altOptions, setAltOptions] = useState<string[]>([])
   const [profile, setProfile] = useState<Profile|any>({})
-
+  const weekDates = useMemo(()=> nextNDatesFromToday(7), []);
+  const [selectedWeekDate, setSelectedWeekDate] = useState(weekDates[0]);
   
 
   const todayStr = useMemo(()=> ymdLocal(new Date()), [])
