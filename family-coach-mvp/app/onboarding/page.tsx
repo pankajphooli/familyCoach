@@ -1,262 +1,338 @@
 'use client'
-import { useEffect, useState } from 'react'
+
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '../../lib/supabaseClient'
+import { createClient } from '../../lib/supabaseClient' // ← change to '../lib/supabaseClient' if your file name uses capital C
 
-type Field = { id: string; label: string; type: string; required?: boolean; options?: any }
-type Section = { id: string; title: string; fields: Field[] }
-type Schema = { sections: Section[] }
+type Step = 1 | 2 | 3
+type Kid = { name: string; dob: string }
 
-export default function Onboarding(){
-  const supabase = createClient()
+function ymdLocal(d: Date){
+  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0')
+  return `${y}-${m}-${day}`
+}
+
+export default function OnboardingPage(){
+  const supabase = useMemo(()=>createClient(), [])
   const router = useRouter()
-  const [schema, setSchema] = useState<Schema | null>(null)
-  const [values, setValues] = useState<Record<string, any>>({})
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
 
-  // Family inline
-  const [familyMode, setFamilyMode] = useState<'none' | 'create' | 'join'>('create')
-  const [familyName, setFamilyName] = useState('')
-  const [inviteCode, setInviteCode] = useState('')
+  // gating
+  const [checking, setChecking] = useState(true)
 
-  // Custom adders
-  const [injuryInput, setInjuryInput] = useState('')
-  const [injuriesExtra, setInjuriesExtra] = useState<string[]>([])
+  // steps & busy
+  const [step, setStep] = useState<Step>(1)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string|null>(null)
 
-  const [conditionsInput, setConditionsInput] = useState('')
-  const [conditionsExtra, setConditionsExtra] = useState<string[]>([])
+  // profile fields
+  const [goalWeight, setGoalWeight] = useState<string>('')           // kg
+  const [goalDate, setGoalDate] = useState<string>(ymdLocal(new Date()))
+  const [dietPattern, setDietPattern] = useState<string>('')         // 'veg' | 'non_veg' | 'vegan' | etc
+  const [meatPolicy, setMeatPolicy] = useState<string>('')           // 'non_veg_chicken_only' etc
+  const [allergies, setAllergies] = useState<string>('')             // CSV → string[]
+  const [dislikes, setDislikes] = useState<string>('')               // CSV
+  const [cuisines, setCuisines] = useState<string>('')               // CSV
+  const [injuries, setInjuries] = useState<string>('')               // CSV
+  const [conditions, setConditions] = useState<string>('')           // CSV
+  const [equipment, setEquipment] = useState<string>('')             // CSV
 
-  const [equipInput, setEquipInput] = useState('')
-  const [equipExtra, setEquipExtra] = useState<string[]>([])
+  // family
+  const [existingFamilyId, setExistingFamilyId] = useState<string| null>(null)
+  const [familyName, setFamilyName] = useState<string>('')
+  const [inviteCode, setInviteCode] = useState<string>('')
+  const [kids, setKids] = useState<Kid[]>([])
+  const [kidName, setKidName] = useState(''); const [kidDob, setKidDob] = useState('')
 
-  const [allergyInput, setAllergyInput] = useState('')
-  const [allergyExtra, setAllergyExtra] = useState<string[]>([])
-
-  const [cuisineInput, setCuisineInput] = useState('')
-  const [cuisineExtra, setCuisineExtra] = useState<string[]>([])
-
-  const [dislikeInput, setDislikeInput] = useState('')
-  const [dislikesExtra, setDislikesExtra] = useState<string[]>([])
-
-  useEffect(()=>{
-    fetch('/data/questionnaire_schema_v1.json').then(r=>r.json()).then(setSchema)
-    supabase.auth.getUser().then(({ data }) => {
-      if(data.user?.email){
-        setValues(v => ({ ...v, email: data.user!.email }))
-      }
-    }).finally(()=>setLoading(false))
-  }, [])
-
-  const toggleCheckbox = (id: string, option: string) => {
-    setValues(v => {
-      const arr = Array.isArray(v[id]) ? [...v[id]] : []
-      const idx = arr.indexOf(option)
-      if (idx >= 0) arr.splice(idx, 1); else arr.push(option)
-      return { ...v, [id]: arr }
-    })
+  // UX helpers
+  function toast(kind:'success'|'error'|'info', msg:string){
+    (window as any)?.toast ? (window as any).toast(kind, msg) : (kind==='error' ? console.warn(msg) : console.log(msg))
   }
 
-  const handleChange = (id:string, val:any) => setValues(v=>({...v, [id]:val}))
+  // preload profile to keep it smooth & allow resume
+  useEffect(()=>{(async()=>{
+    const { data:{ user } } = await supabase.auth.getUser()
+    if(!user){ setChecking(false); return } // middleware should redirect; we still guard
+    // if user already onboarded enough (has family OR has diet prefs/goal), we let them continue using the app
+    const { data: prof } = await supabase
+      .from('profiles')
+      .select('id, family_id, goal_weight, goal_target_date, dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment')
+      .eq('id', user.id).maybeSingle()
 
-  const addTo = (which: 'injuries'|'conditions'|'equipment'|'allergies'|'cuisines'|'dislikes') => {
-    const map: any = {
-      injuries: [injuryInput, setInjuryInput, injuriesExtra, setInjuriesExtra],
-      conditions: [conditionsInput, setConditionsInput, conditionsExtra, setConditionsExtra],
-      equipment: [equipInput, setEquipInput, equipExtra, setEquipExtra],
-      allergies: [allergyInput, setAllergyInput, allergyExtra, setAllergyExtra],
-      cuisines: [cuisineInput, setCuisineInput, cuisineExtra, setCuisineExtra],
-      dislikes: [dislikeInput, setDislikeInput, dislikesExtra, setDislikesExtra],
+    if(prof){
+      setExistingFamilyId(prof.family_id ?? null)
+      setGoalWeight(prof.goal_weight?.toString?.() || '')
+      setGoalDate(prof.goal_target_date || ymdLocal(new Date()))
+      setDietPattern(prof.dietary_pattern || '')
+      setMeatPolicy(prof.meat_policy || '')
+      setAllergies(Array.isArray(prof.allergies)? prof.allergies.join(', ') : (prof.allergies||''))
+      setDislikes(Array.isArray(prof.dislikes)? prof.dislikes.join(', ') : (prof.dislikes||''))
+      setCuisines(Array.isArray(prof.cuisine_prefs)? prof.cuisine_prefs.join(', ') : (prof.cuisine_prefs||''))
+      setInjuries(Array.isArray(prof.injuries)? prof.injuries.join(', ') : (prof.injuries||''))
+      setConditions(Array.isArray(prof.health_conditions)? prof.health_conditions.join(', ') : (prof.health_conditions||''))
+      setEquipment(Array.isArray(prof.equipment)? prof.equipment.join(', ') : (prof.equipment||''))
     }
-    const [val, setVal, arr, setArr] = map[which] as [string, any, string[], any]
-    const t = (val||'').trim()
-    if(!t) return
-    if (!arr.includes(t)) setArr([...arr, t])
-    setVal('')
-  }
+    setChecking(false)
+  })()},[supabase])
 
-  const merged = (id:string, extras:string[]) => {
-    const base = Array.isArray(values[id]) ? values[id] : []
-    return [...base, ...extras].filter(Boolean)
-  }
+  function parseCSV(s:string){ return s.split(',').map(x=>x.trim()).filter(Boolean) }
 
-  const saveProfileAndFamily = async() => {
-    setSaving(true)
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if(!user){ alert('Please sign in first'); setSaving(false); return }
+  async function saveStep1(){
+    setBusy(true); setErr(null)
+    try{
+      const { data:{ user } } = await supabase.auth.getUser()
+      if(!user) throw new Error('Please sign in again')
 
-      // Create or join a family (optional)
-      let family_id: string | null = null
-      if (familyMode === 'create' && familyName.trim()){
-        const invite_code = Math.random().toString(36).slice(2,8)
-        const { data: fam, error: ef } = await supabase
-          .from('families')
-          .insert({ name: familyName.trim(), owner_user_id: user.id, invite_code })
-          .select().single()
-        if (ef) { alert(ef.message); setSaving(false); return }
-        family_id = fam.id
-        await supabase.from('family_members').insert({ family_id, user_id: user.id, role: 'owner' })
-      } else if (familyMode === 'join' && inviteCode.trim()){
-        const { data: fam, error: sf } = await supabase
-          .from('families')
-          .select('id, invite_code, name')
-          .eq('invite_code', inviteCode.trim())
-          .maybeSingle()
-        if (sf || !fam){ alert('Invalid invite code'); setSaving(false); return }
-        family_id = fam.id
-        const { error: mErr } = await supabase.from('family_members').insert({ family_id, user_id: user.id, role: 'member' })
-        if (mErr) { alert(mErr.message); setSaving(false); return }
-      }
-
-      const injuries = merged('injuries', injuriesExtra)
-      const conditions = merged('conditions', conditionsExtra)
-      const equipment = merged('equipment', equipExtra)
-      const allergies = merged('allergies', allergyExtra)
-      const cuisines = merged('cuisines', cuisineExtra)
-      const dislikes = dislikesExtra.join(', ')  // store as text CSV to avoid schema change
-
-      // Build profile payload
       const payload:any = {
         id: user.id,
-        family_id,
-        full_name: values['full_name'] || null,
-        sex: values['sex'] || null,
-        dob: values['dob'] || null,
-        height_cm: values['height_cm'] ? Number(values['height_cm']) : null,
-        weight_kg: values['weight_kg'] ? Number(values['weight_kg']) : null,
-        target_weight_kg: values['target_weight_kg'] ? Number(values['target_weight_kg']) : null,
-        target_date: values['target_date'] || null,
-        activity_level: values['activity_level'] || 'sedentary (little/no exercise)',
-        dietary_pattern: values['dietary_pattern'] || 'non-veg',
-        allergies,
-        dislikes,
-        cuisines,
-        budget_level: values['budget_level'] || null,
-        meals_per_day: values['meals_per_day'] ? Number(values['meals_per_day']) : 3,
-        fasting_window: values['fasting_window'] || null,
-        primary_goal: values['primary_goal'] || 'fat loss',
-        secondary_goal: values['secondary_goal'] || null,
-        equipment,
-        step_goal: values['step_goal'] ? Number(values['step_goal']) : null,
-        sleep_hours: values['sleep_hours'] ? Number(values['sleep_hours']) : null,
-        time_per_workout_min: values['time_per_workout_min'] ? Number(values['time_per_workout_min']) : 25,
-        conditions,
-        injuries
+        goal_weight: goalWeight? Number(goalWeight) : null,
+        goal_target_date: goalDate || null,
       }
-
-      const { error: perr } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' })
-      if (perr) { alert(perr.message); setSaving(false); return }
-
-      alert('Onboarding complete!')
-      router.push('/')
-    } finally {
-      setSaving(false)
-    }
+      const { error } = await supabase.from('profiles').upsert(payload, { onConflict:'id' })
+      if(error) throw error
+      toast('success','Saved goals')
+      setStep(2)
+    }catch(e:any){ setErr(e.message || 'Could not save'); toast('error','Could not save') }
+    finally{ setBusy(false) }
   }
 
-  if(loading) return <div className="card"><p>Loading…</p></div>
-  if(!schema) return <div className="card"><p>Schema missing</p></div>
+  async function saveStep2(){
+    setBusy(true); setErr(null)
+    try{
+      const { data:{ user } } = await supabase.auth.getUser()
+      if(!user) throw new Error('Please sign in again')
+
+      const payload:any = {
+        id: user.id,
+        dietary_pattern: dietPattern || null,
+        meat_policy: meatPolicy || null,
+        allergies: parseCSV(allergies),
+        dislikes: parseCSV(dislikes),
+        cuisine_prefs: parseCSV(cuisines),
+        injuries: parseCSV(injuries),
+        health_conditions: parseCSV(conditions),
+        equipment: parseCSV(equipment),
+      }
+      const { error } = await supabase.from('profiles').upsert(payload, { onConflict:'id' })
+      if(error) throw error
+      toast('success','Preferences saved')
+      setStep(3)
+    }catch(e:any){ setErr(e.message || 'Could not save'); toast('error','Could not save') }
+    finally{ setBusy(false) }
+  }
+
+  async function createFamily(){
+    setBusy(true); setErr(null)
+    try{
+      const { data:{ user } } = await supabase.auth.getUser()
+      if(!user) throw new Error('Please sign in again')
+      if(!familyName.trim()) throw new Error('Enter a family name')
+
+      // make invite code (5–6 chars)
+      const code = Math.random().toString(36).slice(2, 8)
+      const { data: fam, error } = await supabase.from('families').insert({ name: familyName.trim(), invite_code: code }).select('id').maybeSingle()
+      if(error) throw error
+      if(!fam?.id) throw new Error('Could not create family')
+
+      // link
+      await supabase.from('profiles').update({ family_id: fam.id }).eq('id', user.id)
+      await supabase.from('family_members').insert({ family_id: fam.id, user_id: user.id, role:'owner', can_manage_members: true })
+
+      setExistingFamilyId(fam.id)
+      toast('success','Family created')
+    }catch(e:any){ setErr(e.message || 'Could not create family'); toast('error','Could not create family') }
+    finally{ setBusy(false) }
+  }
+
+  async function joinFamily(){
+    setBusy(true); setErr(null)
+    try{
+      const { data:{ user } } = await supabase.auth.getUser()
+      if(!user) throw new Error('Please sign in again')
+      if(!inviteCode.trim()) throw new Error('Enter the invite code')
+
+      const { data: fam, error } = await supabase.from('families').select('id').eq('invite_code', inviteCode.trim()).maybeSingle()
+      if(error) throw error
+      if(!fam?.id) throw new Error('Invalid code')
+
+      await supabase.from('profiles').update({ family_id: fam.id }).eq('id', user.id)
+      await supabase.from('family_members').insert({ family_id: fam.id, user_id: user.id, role:'member', can_manage_members:false })
+
+      setExistingFamilyId(fam.id)
+      toast('success','Joined family')
+    }catch(e:any){ setErr(e.message || 'Could not join family'); toast('error','Could not join family') }
+    finally{ setBusy(false) }
+  }
+
+  function addKidLocal(){
+    if(!kidName.trim() || !kidDob) return
+    setKids(prev => [...prev, { name:kidName.trim(), dob:kidDob }])
+    setKidName(''); setKidDob('')
+  }
+
+  async function saveKids(){
+    if(!existingFamilyId || !kids.length) return
+    const rows = kids.map(k => ({ family_id: existingFamilyId, name: k.name, dob: k.dob }))
+    await supabase.from('dependents').insert(rows)
+  }
+
+  async function finish(){
+    setBusy(true); setErr(null)
+    try{
+      const { data:{ user } } = await supabase.auth.getUser()
+      if(!user) throw new Error('Please sign in again')
+
+      await saveKids()
+
+      toast('success','Onboarding complete!')
+      router.replace('/')       // go to dashboard
+      router.refresh()
+    }catch(e:any){ setErr(e.message || 'Something went wrong'); toast('error','Something went wrong') }
+    finally{ setBusy(false) }
+  }
+
+  if(checking){
+    return <div className="container"><div className="muted">Loading…</div></div>
+  }
 
   return (
-    <div className="card">
-      <h2 style={{marginTop:0}}>Onboarding</h2>
-      {schema.sections.map(sec => (
-        <div key={sec.id}>
-          <h3 style={{marginBottom:8}}>{sec.title}</h3>
-          <div className="grid">
-            {sec.fields.map(f => (
-              <div key={f.id}>
-                <label><small>{f.label}</small></label>
-                {f.type === 'select' ? (
-                  <select className="input" value={values[f.id] ?? ''} onChange={(e)=>handleChange(f.id, e.currentTarget.value)}>
-                    <option value="" disabled>— Select —</option>
-                    {(f.options||[]).map((o:any)=> <option key={String(o)} value={String(o)}>{String(o)}</option>)}
-                  </select>
-                ) : f.type === 'checkboxes' ? (
-                  <div className="checkbox-group">
-                    {(f.options||[]).map((o:any)=> {
-                      const checked = Array.isArray(values[f.id]) && values[f.id].includes(o)
-                      return (
-                        <label key={String(o)} className="checkbox-item">
-                          <input type="checkbox" checked={checked} onChange={()=>toggleCheckbox(f.id, String(o))} />
-                          <span>{String(o)}</span>
-                        </label>
-                      )
-                    })}
-                    {['injuries','conditions','equipment','allergies','cuisines'].includes(f.id) && (
-                      <div style={{gridColumn:'1 / -1'}}>
-                        <div className="grid grid-2">
-                          <input className="input" placeholder={"Add another " + f.id.slice(0,-1) + "…"} value={
-                            f.id==='injuries'?injuryInput: f.id==='conditions'?conditionsInput: f.id==='equipment'?equipInput: f.id==='allergies'?allergyInput: cuisineInput
-                          } onChange={(e)=>{
-                            const v = e.target.value
-                            if (f.id==='injuries') setInjuryInput(v)
-                            else if (f.id==='conditions') setConditionsInput(v)
-                            else if (f.id==='equipment') setEquipInput(v)
-                            else if (f.id==='allergies') setAllergyInput(v)
-                            else setCuisineInput(v)
-                          }} />
-                          <button className="button" onClick={()=>addTo(f.id as any)} type="button">Add</button>
-                        </div>
-                        <div className="pills" style={{marginTop:8}}>
-                          {(f.id==='injuries'?injuriesExtra: f.id==='conditions'?conditionsExtra: f.id==='equipment'?equipExtra: f.id==='allergies'?allergyExtra: cuisineExtra).map(x => <span key={x} className="pill">{x}</span>)}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <input className="input"
-                    type={f.type==='number' ? 'number' : (f.type==='date' ? 'date' : 'text')}
-                    value={values[f.id] ?? ''}
-                    onChange={e=>handleChange(f.id, e.currentTarget.value)}
-                    disabled={f.id==='email'}
-                  />
-                )}
-                {f.id==='dislikes' && (
-                  <div style={{marginTop:8}}>
-                    <div className="grid grid-2">
-                      <input className="input" placeholder="Add a food you dislike…" value={dislikeInput} onChange={e=>setDislikeInput(e.target.value)} />
-                      <button className="button" onClick={()=>addTo('dislikes')} type="button">Add</button>
-                    </div>
-                    {dislikesExtra.length>0 && (
-                      <div className="pills" style={{marginTop:8}}>
-                        {dislikesExtra.map(x => <span key={x} className="pill">{x}</span>)}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          <hr/>
-        </div>
-      ))}
+    <div className="container" style={{display:'grid', gap:14, paddingBottom:84}}>
+      {/* Heading / brand */}
+      <div style={{ textAlign:'center', fontWeight:800, fontSize:24, marginTop:6 }}>HouseholdHQ</div>
+      <h1 className="text-2xl font-semibold" style={{marginTop:2}}>Let’s get you set up</h1>
 
-      {/* Family setup embedded in onboarding */}
-      <div>
-        <h3>Family</h3>
-        <div style={{display:'flex',gap:16,marginBottom:8}}>
-          <label style={{display:'flex',alignItems:'center',gap:8}}><input type="radio" name="familyMode" checked={familyMode==='create'} onChange={()=>setFamilyMode('create')} /> Create new</label>
-          <label style={{display:'flex',alignItems:'center',gap:8}}><input type="radio" name="familyMode" checked={familyMode==='join'} onChange={()=>setFamilyMode('join')} /> Join with code</label>
-          <label style={{display:'flex',alignItems:'center',gap:8}}><input type="radio" name="familyMode" checked={familyMode==='none'} onChange={()=>setFamilyMode('none')} /> Skip for now</label>
-        </div>
-        {familyMode === 'create' && (
-          <div className="grid">
-            <input className="input" placeholder="Family name" value={familyName} onChange={e=>setFamilyName(e.target.value)} />
-            <small className="muted">You can invite others later from the Family page.</small>
-          </div>
-        )}
-        {familyMode === 'join' && (
-          <div className="grid">
-            <input className="input" placeholder="Invite code" value={inviteCode} onChange={e=>setInviteCode(e.target.value)} />
-            <small className="muted">Ask your family owner for the 6-character code.</small>
-          </div>
-        )}
+      {/* Progress dots */}
+      <div style={{display:'flex', gap:6}}>
+        {[1,2,3].map(n=>(
+          <div key={n} style={{
+            width:10, height:10, borderRadius:999,
+            background: step===n ? '#111' : 'rgba(0,0,0,.18)'
+          }}/>
+        ))}
       </div>
 
-      <hr/>
-      <button className="button" onClick={saveProfileAndFamily} disabled={saving}>{saving ? 'Saving…' : 'Finish Onboarding'}</button>
+      {/* STEP 1 */}
+      {step===1 && (
+        <section className="card" style={{display:'grid', gap:12}}>
+          <div style={{fontWeight:800}}>Goals</div>
+
+          <label className="lbl">Your goal weight (kg)</label>
+          <input className="pill-input" inputMode="decimal" placeholder="e.g. 78"
+                 value={goalWeight} onChange={e=>setGoalWeight(e.target.value)} />
+
+          <label className="lbl">Target date</label>
+          <input className="pill-input" type="date" value={goalDate} onChange={e=>setGoalDate(e.target.value)} />
+
+          {err && <div style={{color:'#b00020'}}>{err}</div>}
+
+          <div className="actions" style={{gap:8}}>
+            <button className="button-outline" onClick={()=>router.replace('/')}>Skip</button>
+            <button className="button" disabled={busy} onClick={saveStep1}>{busy?'Saving…':'Next'}</button>
+          </div>
+        </section>
+      )}
+
+      {/* STEP 2 */}
+      {step===2 && (
+        <section className="card" style={{display:'grid', gap:12}}>
+          <div style={{fontWeight:800}}>Diet & exercise preferences</div>
+
+          <label className="lbl">Dietary pattern</label>
+          <select className="pill-input" value={dietPattern} onChange={e=>setDietPattern(e.target.value)}>
+            <option value="">Select…</option>
+            <option value="veg">Vegetarian</option>
+            <option value="non_veg">Non-vegetarian</option>
+            <option value="vegan">Vegan</option>
+            <option value="jain">Jain</option>
+            <option value="omnivore">Omnivore</option>
+          </select>
+
+          <label className="lbl">Meat policy (if non-veg)</label>
+          <select className="pill-input" value={meatPolicy} onChange={e=>setMeatPolicy(e.target.value)}>
+            <option value="">Select…</option>
+            <option value="non_veg_chicken_only">Chicken only</option>
+            <option value="non_veg_any">Any non-veg</option>
+          </select>
+
+          <label className="lbl">Allergies (comma-separated)</label>
+          <input className="pill-input" placeholder="peanut, gluten" value={allergies} onChange={e=>setAllergies(e.target.value)} />
+
+          <label className="lbl">Dislikes (comma-separated)</label>
+          <input className="pill-input" placeholder="okra, beetroot" value={dislikes} onChange={e=>setDislikes(e.target.value)} />
+
+          <label className="lbl">Preferred cuisines (comma-separated)</label>
+          <input className="pill-input" placeholder="indian, italian" value={cuisines} onChange={e=>setCuisines(e.target.value)} />
+
+          <label className="lbl">Injuries (comma-separated)</label>
+          <input className="pill-input" placeholder="knee, shoulder" value={injuries} onChange={e=>setInjuries(e.target.value)} />
+
+          <label className="lbl">Health conditions (comma-separated)</label>
+          <input className="pill-input" placeholder="hypertension" value={conditions} onChange={e=>setConditions(e.target.value)} />
+
+          <label className="lbl">Equipment available (comma-separated)</label>
+          <input className="pill-input" placeholder="dumbbells, resistance band" value={equipment} onChange={e=>setEquipment(e.target.value)} />
+
+          {err && <div style={{color:'#b00020'}}>{err}</div>}
+
+          <div className="actions" style={{gap:8}}>
+            <button className="button-outline" onClick={()=>setStep(1)}>Back</button>
+            <button className="button" disabled={busy} onClick={saveStep2}>{busy?'Saving…':'Next'}</button>
+          </div>
+        </section>
+      )}
+
+      {/* STEP 3 */}
+      {step===3 && (
+        <section className="card" style={{display:'grid', gap:14}}>
+          <div style={{fontWeight:800}}>Family</div>
+
+          {!existingFamilyId && (
+            <>
+              <div className="muted">Create a family or join one with an invite code.</div>
+
+              <div style={{display:'grid', gap:8}}>
+                <label className="lbl">Create a family</label>
+                <div style={{display:'flex', gap:8}}>
+                  <input className="pill-input" placeholder="Family name" value={familyName} onChange={e=>setFamilyName(e.target.value)} />
+                  <button className="button" onClick={createFamily} disabled={busy}>Create</button>
+                </div>
+              </div>
+
+              <div style={{display:'grid', gap:8}}>
+                <label className="lbl">Join with invite code</label>
+                <div style={{display:'flex', gap:8}}>
+                  <input className="pill-input" placeholder="e.g. pqg5a5" value={inviteCode} onChange={e=>setInviteCode(e.target.value)} />
+                  <button className="button-outline" onClick={joinFamily} disabled={busy}>Join</button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {existingFamilyId && (
+            <div className="card" style={{display:'grid', gap:10}}>
+              <div className="muted">Family linked ✓ — add kids (optional)</div>
+
+              <div style={{display:'flex', gap:8}}>
+                <input className="pill-input" placeholder="Child name" value={kidName} onChange={e=>setKidName(e.target.value)} />
+                <input className="pill-input" type="date" value={kidDob} onChange={e=>setKidDob(e.target.value)} />
+                <button className="button-outline" onClick={addKidLocal}>Add</button>
+              </div>
+
+              {kids.length>0 && (
+                <ul className="grid" style={{gap:6}}>
+                  {kids.map((k,i)=>(<li key={i}>• {k.name} — <span className="muted">{k.dob}</span></li>))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {err && <div style={{color:'#b00020'}}>{err}</div>}
+
+          <div className="actions" style={{gap:8}}>
+            <button className="button-outline" onClick={()=>setStep(2)}>Back</button>
+            <button className="button" disabled={busy} onClick={finish}>{busy?'Saving…':'Finish'}</button>
+          </div>
+        </section>
+      )}
     </div>
   )
 }
