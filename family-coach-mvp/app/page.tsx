@@ -24,7 +24,7 @@ function labelFor(dstr:string){
   return d.toLocaleDateString(undefined, { weekday:'short', day:'2-digit' })
 }
 
-// Simple inline date scroller that reuses your .chips/.chip styles
+// Inline date scroller that reuses your .chips/.chip styles
 function DateScrollerInline({ selected, onSelect, days=7 }:{ selected:string; onSelect:(d:string)=>void; days?:number }){
   const dates = useMemo(()=> nextNDatesFromToday(days), [days])
   return (
@@ -44,8 +44,8 @@ export default function HomePage(){
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
   ), [])
 
+  const [authState, setAuthState] = useState<'checking'|'in'|'out'>('checking')
   const [selectedDate, setSelectedDate] = useState(ymdLocal(new Date()))
-  const [signedIn, setSignedIn] = useState<boolean>(true)
   const [busy, setBusy] = useState(false)
 
   const [meals, setMeals] = useState<Meal[]>([])
@@ -61,59 +61,73 @@ export default function HomePage(){
     t ? (window as any).toast(kind,msg) : (kind==='error'?console.warn(msg):console.log(msg))
   }
 
-  // Load all widgets for the selected day
+  // --- Auth bootstrap: wait until we know for sure (checking → in/out)
   useEffect(()=>{ (async()=>{
+    setAuthState('checking')
+    const sess = await supabase.auth.getSession()
+    const user = sess.data.session?.user || null
+    if(user){ setAuthState('in') } else { setAuthState('out') }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session)=>{
+      setAuthState(session?.user ? 'in' : 'out')
+    })
+    return () => subscription.unsubscribe()
+  })() }, [supabase])
+
+  // Load dashboard data whenever date changes and we’re signed in
+  useEffect(()=>{ (async()=>{
+    if(authState!=='in') return
     setBusy(true)
     try{
       const { data: { session } } = await supabase.auth.getSession()
       const user = session?.user || null
-      if(!user){ setSignedIn(false); setMeals([]); setBlocks([]); setEvents([]); setGrocery([]); return }
-      setSignedIn(true)
+      if(!user){ return }
 
-      // ---- profile goals + latest weight (best-effort, tolerant of missing cols) ----
-      const profSel = 'goal_weight, target_date'
-      const prof = await supabase.from('profiles').select(profSel).eq('id', user.id).maybeSingle()
+      // ---- profile goals + latest weight ----
+      const prof = await supabase.from('profiles').select('goal_weight,target_date').eq('id', user.id).maybeSingle()
       if(!prof.error){
         setGoalWeight((prof.data as any)?.goal_weight ?? null)
         setTargetDate((prof.data as any)?.target_date ?? null)
       }
 
-      const wres = await supabase.from('weights').select('weight, date').eq('user_id', user.id).order('date', { ascending:false }).limit(1)
+      const wres = await supabase.from('weights').select('weight,date').eq('user_id', user.id).order('date', { ascending:false }).limit(1)
       if(!wres.error && (wres.data||[]).length){ setCurrentWeight((wres.data as any)[0]?.weight ?? null) }
 
       // ---- meals for selected day ----
       const pd = await supabase.from('plan_days').select('id').eq('user_id', user.id).eq('date', selectedDate).maybeSingle()
       if(pd.data?.id){
-        const ml = await supabase.from('meals').select('id, meal_type, recipe_name').eq('plan_day_id', pd.data.id)
-        setMeals(ml.data as Meal[] || [])
+        const ml = await supabase.from('meals').select('id,meal_type,recipe_name').eq('plan_day_id', pd.data.id)
+        setMeals((ml.data as Meal[]) || [])
       } else { setMeals([]) }
 
       // ---- workouts for selected day ----
       const wd = await supabase.from('workout_days').select('id').eq('user_id', user.id).eq('date', selectedDate).maybeSingle()
       if(wd.data?.id){
-        const wb = await supabase.from('workout_blocks').select('id, title, kind, details').eq('workout_day_id', wd.data.id)
-        setBlocks(wb.data as WorkoutBlock[] || [])
+        const wb = await supabase.from('workout_blocks').select('id,title,kind,details').eq('workout_day_id', wd.data.id)
+        setBlocks((wb.data as WorkoutBlock[]) || [])
       } else { setBlocks([]) }
 
-      // ---- events for selected day (created-by; if you store attendees array, extend as needed) ----
-      const ev = await supabase.from('events').select('id,title,start_time,end_time,date').eq('user_id', user.id).eq('date', selectedDate).order('start_time', { ascending:true })
-      if(!ev.error) setEvents(ev.data as Event[] || [])
-      else setEvents([])
+      // ---- events for selected day ----
+      // If your schema stores family-wide events or timestamps instead of date, adapt this filter.
+      const ev = await supabase.from('events').select('id,title,start_time,end_time,date')
+        .eq('user_id', user.id).eq('date', selectedDate).order('start_time', { ascending:true })
+      setEvents(!ev.error ? ((ev.data as Event[]) || []) : [])
 
-      // ---- grocery preview (first 6 unchecked items) with fallback to shopping_items ----
-      const gi = await supabase.from('grocery_items').select('id,name,quantity,done').eq('user_id', user.id).eq('done', false).order('created_at', { ascending:false }).limit(6)
+      // ---- grocery preview (first 6 unchecked items) with fallback ----
+      const gi = await supabase.from('grocery_items').select('id,name,quantity,done')
+        .eq('user_id', user.id).eq('done', false).order('created_at', { ascending:false }).limit(6)
       if(!gi.error){
         setGrocery((gi.data as GroceryItem[]) || [])
       }else{
-        const si = await supabase.from('shopping_items').select('id,name,quantity,done').eq('user_id', user.id).eq('done', false).order('created_at', { ascending:false }).limit(6)
+        const si = await supabase.from('shopping_items').select('id,name,quantity,done')
+          .eq('user_id', user.id).eq('done', false).order('created_at', { ascending:false }).limit(6)
         setGrocery((si.data as GroceryItem[]) || [])
       }
-    }catch(e){
+    }catch{
       notify('error','Failed to load home data')
     }finally{
       setBusy(false)
     }
-  })() }, [selectedDate, supabase])
+  })() }, [authState, selectedDate, supabase])
 
   const goalDiff = useMemo(()=>{
     if(goalWeight==null || currentWeight==null) return null
@@ -128,7 +142,7 @@ export default function HomePage(){
       {/* rolling date scroller (today + next 6) */}
       <DateScrollerInline selected={selectedDate} onSelect={setSelectedDate} />
 
-      {!signedIn && (
+      {authState==='out' && (
         <div className="panel" style={{borderColor:'#e1a', color:'#e11'}}>
           You’re not signed in. Sign in from the header to load your data.
         </div>
@@ -153,7 +167,7 @@ export default function HomePage(){
         )}
       </section>
 
-      {/* Today’s Diet (for selected day) */}
+      {/* Diet for selected day */}
       <section className="panel">
         <div className="form-title">Diet — {new Date(selectedDate).toLocaleDateString(undefined,{ weekday:'short', day:'2-digit', month:'short' })}</div>
         {meals.length===0 ? (
@@ -172,7 +186,7 @@ export default function HomePage(){
         )}
       </section>
 
-      {/* Today’s Workout (for selected day) */}
+      {/* Workout for selected day */}
       <section className="panel">
         <div className="form-title">Workout — {new Date(selectedDate).toLocaleDateString(undefined,{ weekday:'short', day:'2-digit', month:'short' })}</div>
         {blocks.length===0 ? (
@@ -225,7 +239,7 @@ export default function HomePage(){
         )}
       </section>
 
-      {busy && <div className="muted">Refreshing…</div>}
+      {(authState==='checking' || busy) && <div className="muted">Refreshing…</div>}
     </div>
   )
 }
