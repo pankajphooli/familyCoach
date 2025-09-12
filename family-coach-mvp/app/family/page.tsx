@@ -1,11 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createClient } from '../../lib/supabaseClient'   // <-- keep the capital C
+import { createClient } from '../lib/supabaseClient' // keep the capital C
 
 type Family = { id: string; name: string | null; invite_code: string | null }
 type Profile = { id: string; full_name: string | null; family_id?: string | null }
-type MemberRow = { user_id: string; role: 'owner' | 'member'; can_manage_members: boolean; profiles: { full_name: string | null } | null }
 type Member = { user_id: string; name: string; role: 'owner' | 'member'; you: boolean }
 type Kid = { id: string; name: string; dob: string }
 
@@ -36,35 +35,50 @@ export default function FamilyPage() {
         if (!user) { return }
 
         // my profile
-        const profRes = await supabase.from('profiles')
-          .select('id, full_name, family_id').eq('id', user.id).maybeSingle()
+        const profRes = await supabase
+          .from('profiles')
+          .select('id, full_name, family_id')
+          .eq('id', user.id)
+          .maybeSingle()
         const prof = (profRes.data || null) as Profile | null
         setMe(prof)
 
         if (!prof?.family_id) return
 
         // family
-        const famRes = await supabase.from('families')
-          .select('id, name, invite_code').eq('id', prof.family_id).maybeSingle()
+        const famRes = await supabase
+          .from('families')
+          .select('id, name, invite_code')
+          .eq('id', prof.family_id)
+          .maybeSingle()
         setFam((famRes.data || null) as Family | null)
 
-        // adults
-        const memRes = await supabase.from('family_members')
+        // adults (handle profiles as object OR array)
+        const memRes = await supabase
+          .from('family_members')
           .select('user_id, role, can_manage_members, profiles!inner(full_name)')
           .eq('family_id', prof.family_id)
-          .order('role', { ascending: false })   // owners first
-        const memRows = (memRes.data || []) as MemberRow[]
-        const mapped: Member[] = memRows.map(m => ({
+          .order('role', { ascending: false })
+
+        const memRows = (memRes.data as any[]) || []
+
+        const nameFromProfiles = (p: any) =>
+          Array.isArray(p) ? (p[0]?.full_name ?? 'Member') : (p?.full_name ?? 'Member')
+
+        const mapped: Member[] = memRows.map((m: any) => ({
           user_id: m.user_id,
-          name: (m.profiles?.full_name ?? 'Member'),
-          role: m.role,
+          name: nameFromProfiles(m.profiles),
+          role: m.role as 'owner' | 'member',
           you: m.user_id === user.id
         }))
         setMembers(mapped)
 
         // kids
-        const depRes = await supabase.from('dependents')
-          .select('id,name,dob').eq('family_id', prof.family_id).order('name')
+        const depRes = await supabase
+          .from('dependents')
+          .select('id,name,dob')
+          .eq('family_id', prof.family_id)
+          .order('name')
         setKids(((depRes.data || []) as any[]).map(r => ({ id: r.id, name: r.name, dob: r.dob })))
       } finally {
         setBusy(false)
@@ -83,7 +97,12 @@ export default function FamilyPage() {
     const code = Math.random().toString(36).slice(2, 7)
     setBusy(true)
     try {
-      const res = await supabase.from('families').update({ invite_code: code }).eq('id', fam.id).select().maybeSingle()
+      const res = await supabase
+        .from('families')
+        .update({ invite_code: code })
+        .eq('id', fam.id)
+        .select()
+        .maybeSingle()
       if (res.error) throw res.error
       setFam({ ...fam, invite_code: res.data?.invite_code ?? code })
       notify('success', 'Invite code updated')
@@ -97,7 +116,11 @@ export default function FamilyPage() {
     if (!kidName.trim() || !kidDob) { notify('error', 'Enter name and DOB'); return }
     setBusy(true)
     try {
-      const ins = await supabase.from('dependents').insert({ family_id: fam.id, name: kidName.trim(), dob: kidDob }).select().maybeSingle()
+      const ins = await supabase
+        .from('dependents')
+        .insert({ family_id: fam.id, name: kidName.trim(), dob: kidDob })
+        .select()
+        .maybeSingle()
       if (ins.error) throw ins.error
       setKids([...kids, { id: ins.data!.id, name: ins.data!.name, dob: ins.data!.dob }])
       setKidName(''); setKidDob('')
@@ -123,8 +146,11 @@ export default function FamilyPage() {
     if (!fam) return
     setBusy(true)
     try {
-      // drop from join table; (profiles.family_id is kept as-is in your schema)
-      const del = await supabase.from('family_members').delete().eq('family_id', fam.id).eq('user_id', user_id)
+      const del = await supabase
+        .from('family_members')
+        .delete()
+        .eq('family_id', fam.id)
+        .eq('user_id', user_id)
       if (del.error) throw del.error
       setMembers(members.filter(m => m.user_id !== user_id))
       notify('success', 'Member removed')
@@ -133,16 +159,12 @@ export default function FamilyPage() {
     } finally { setBusy(false) }
   }
 
-  // ---- view helpers --------------------------------------------------------
-
-  const Title = ({ children }: { children: any }) => (
-    <h1 className="text-3xl font-extrabold mb-1">Family</h1>
-  )
+  // ---- view ---------------------------------------------------------------
 
   if (!me) {
     return (
       <div className="container" style={{ display: 'grid', gap: 16 }}>
-        <Title>Family</Title>
+        <h1 className="text-3xl font-extrabold">Family</h1>
         <div className="muted">You’re not signed in. Sign in from the header.</div>
       </div>
     )
@@ -150,7 +172,7 @@ export default function FamilyPage() {
   if (!fam) {
     return (
       <div className="container" style={{ display: 'grid', gap: 16 }}>
-        <Title>Family</Title>
+        <h1 className="text-3xl font-extrabold">Family</h1>
         <div className="muted">No family found yet. Create or join a family from onboarding.</div>
       </div>
     )
@@ -160,7 +182,7 @@ export default function FamilyPage() {
     <div className="container" style={{ display: 'grid', gap: 16, paddingBottom: 84 }}>
       <h1 className="text-3xl font-extrabold">Family</h1>
 
-      {/* Header row: Family: <name> + Add Kids */}
+      {/* Family name + Add Kids */}
       <div className="flex items-center justify-between">
         <div className="text-2xl font-extrabold">
           Family: <span className="font-extrabold">{fam.name || '—'}</span>
@@ -168,7 +190,7 @@ export default function FamilyPage() {
         <button className="button" onClick={scrollToAdd}>Add Kids</button>
       </div>
 
-      {/* Invite code + regenerate */}
+      {/* Invite code row */}
       <div className="flex items-center justify-between">
         <div className="text-lg">
           <span className="font-semibold">Invite Code</span>&nbsp;
@@ -177,11 +199,10 @@ export default function FamilyPage() {
         <button className="button-outline" onClick={regenerateCode}>Regenerate</button>
       </div>
 
-      {/* Members panel */}
+      {/* Members card */}
       <section className="card" style={{ display: 'grid', gap: 12 }}>
         <div className="text-xl font-extrabold">Members</div>
 
-        {/* Adults first, numbered */}
         <ul className="grid gap-3">
           {members.map((m, idx) => (
             <li key={m.user_id} className="flex items-center justify-between">
@@ -195,7 +216,6 @@ export default function FamilyPage() {
             </li>
           ))}
 
-          {/* Kids (dependents) continue numbering after adults */}
           {kids.map((k, j) => {
             const n = members.length + j + 1
             return (
@@ -237,9 +257,4 @@ export default function FamilyPage() {
       {busy && <div className="muted">Working…</div>}
     </div>
   )
-}
-
-/* Small pill label that matches the rest of the app */
-function Chip({ children }: { children: any }) {
-  return <span className="chip">{children}</span>
 }
