@@ -91,7 +91,27 @@ export default function PlansPage(){
   const [altOptions, setAltOptions] = useState<string[]>([])
   const [profile, setProfile] = useState<Profile|any>({})
 
+  
+
   const todayStr = useMemo(()=> ymdLocal(new Date()), [])
+
+  function mondayOfWeek(d: Date){
+    // We intentionally start the “week” at TODAY (not Monday) for a rolling 7-day view
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+  
+  function rangeMonToSun(start: Date){
+    const out: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      const x = new Date(start);
+      x.setDate(start.getDate() + i);
+      out.push(x);
+    }
+    return out;
+  }
+
+
+  
   const monday = useMemo(()=> mondayOfWeek(new Date()), [])
   const weekDates = useMemo(()=> rangeMonToSun(monday).map(ymdLocal), [monday])
   const [weekSel, setWeekSel] = useState<string>(todayStr)
