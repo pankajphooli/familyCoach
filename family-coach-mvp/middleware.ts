@@ -1,40 +1,51 @@
-// middleware.ts
-import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
+import { NextResponse } from 'next/server'
 
 export async function middleware(req: NextRequest) {
-  // let static files through
-  const { pathname } = req.nextUrl
-  const publicPrefixes = [
-    '/auth', '/api', '/favicon.ico', '/robots.txt', '/sitemap.xml',
-    '/_next', '/images', '/assets'
-  ]
-  if (publicPrefixes.some(p => pathname.startsWith(p))) {
+  const { pathname, search } = req.nextUrl
+
+  // Let Next.js internals & static files pass
+  const isPublicFile = /\.(.*)$/.test(pathname)
+  if (
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/api') ||
+    pathname.startsWith('/images') ||
+    pathname === '/favicon.ico' ||
+    pathname === '/robots.txt' ||
+    pathname === '/manifest.json' ||
+    isPublicFile
+  ) {
     return NextResponse.next()
   }
 
-  const res = NextResponse.next()
-  const supabase = createMiddlewareClient({ req, res })
-  const { data: { user } } = await supabase.auth.getUser()
-
-  // If not signed in, redirect to /auth and remember where they were heading
-  if (!user) {
-    const to = new URL('/auth', req.url)
-    to.searchParams.set('redirect', pathname + req.nextUrl.search)
-    return NextResponse.redirect(to)
+  // Always allow auth pages
+  if (pathname.startsWith('/auth')) {
+    return NextResponse.next()
   }
 
-  // Already signed in but on /auth → bounce them to where they came from
-  if (user && pathname === '/auth') {
-    const to = req.nextUrl.searchParams.get('redirect') || '/'
-    return NextResponse.redirect(new URL(to, req.url))
+  // Supabase sets cookies like: sb-<project-ref>-auth-token
+  const hasSupabaseSession = req.cookies.getAll().some(c =>
+    /^sb-.*-auth-token$/.test(c.name)
+  )
+
+  // Pages that require auth
+  const protectedPrefixes = ['/', '/home', '/plans', '/calendar', '/grocery', '/family', '/profile']
+  const isProtected = protectedPrefixes.some(p => pathname === p || pathname.startsWith(p + '/'))
+
+  // Not signed in → send to /auth with return path
+  if (isProtected && !hasSupabaseSession) {
+    const url = req.nextUrl.clone()
+    url.pathname = '/auth'
+    url.search = search
+      ? `?redirectTo=${encodeURIComponent(pathname + search)}`
+      : `?redirectTo=${encodeURIComponent(pathname)}`
+    return NextResponse.redirect(url)
   }
 
-  return res
+  return NextResponse.next()
 }
 
-// match everything except static files
+// Apply to everything except Next internals & static
 export const config = {
-  matcher: ['/((?!.*\\.(?:svg|png|jpg|jpeg|gif|ico|css|js|map)$).*)']
+  matcher: ['/((?!_next|api|images|favicon.ico|robots.txt|manifest.json).*)'],
 }
