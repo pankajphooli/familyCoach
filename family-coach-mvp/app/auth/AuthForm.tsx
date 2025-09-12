@@ -1,9 +1,8 @@
-// app/auth/AuthForm.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { createClient } from '../../lib/supabaseClient' // or '../../lib/supabaseClient'
+import { createClient } from '../../lib/supabaseclient' // ← change to 'supabaseClient' if your file uses a capital C
 
 type Mode = 'signin' | 'signup'
 
@@ -12,7 +11,7 @@ export default function AuthForm() {
   const searchParams = useSearchParams()
   const supabase = createClient()
 
-  const [mode, setMode] = useState<Mode>('signup') // design: Sign up preselected
+  const [mode, setMode] = useState<Mode>('signup')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -21,7 +20,6 @@ export default function AuthForm() {
   const redirectTo = searchParams?.get('redirectTo') || '/'
 
   useEffect(() => {
-    // If already signed in, bounce to intended page/home
     ;(async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) router.replace(redirectTo)
@@ -30,7 +28,6 @@ export default function AuthForm() {
   }, [])
 
   async function ensureProfile(userId: string) {
-    // Create/ensure minimal profile row without assuming optional columns exist
     await supabase.from('profiles').upsert({ id: userId } as any, { onConflict: 'id' })
   }
 
@@ -51,11 +48,9 @@ export default function AuthForm() {
         const { data, error } = await supabase.auth.signUp({ email, password })
         if (error) throw error
         if (data.user) await ensureProfile(data.user.id)
-        // New users → onboarding
         router.replace('/onboarding')
       }
 
-      // Clear any local caches used by plans
       try {
         Object.keys(localStorage).forEach(k => {
           if (k.startsWith('plans_cache_')) localStorage.removeItem(k)
@@ -68,86 +63,93 @@ export default function AuthForm() {
     }
   }
 
+  // ---- styles tuned to your design ----
+  const cardBorder = 'rgba(0,0,0,.1)'
+  const muted = 'rgba(0,0,0,.55)'
+
   return (
-    <div className="container" style={{ maxWidth: 420, marginInline: 'auto', padding: 16 }}>
+    <div style={{ maxWidth: 420, margin: '0 auto', padding: '28px 16px 40px' }}>
       {/* Brand */}
-      <div style={{ textAlign: 'center', fontWeight: 800, fontSize: 24, margin: '32px 0' }}>
+      <div style={{ textAlign: 'center', fontWeight: 800, fontSize: 28, margin: '18px 0 28px' }}>
         HouseholdHQ
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 18, justifyContent: 'center', marginBottom: 24 }}>
+      {/* Tabs row (centered, underline on active, inactive muted) */}
+      <div style={{ display:'flex', gap:22, justifyContent:'center', alignItems:'center', margin:'6px 0 26px' }}>
         <button
           type="button"
-          onClick={() => setMode('signin')}
+          onClick={()=>setMode('signin')}
           style={{
-            border: 'none',
-            background: 'none',
-            fontWeight: mode === 'signin' ? 800 : 600,
-            opacity: mode === 'signin' ? 1 : .45,
-            textDecoration: mode === 'signin' ? 'underline' : 'none',
-            cursor: 'pointer'
+            background:'none', border:'none', cursor:'pointer',
+            fontSize:16, fontWeight: mode==='signin'?800:600,
+            color: mode==='signin'?'#000':muted, padding:'0 2px',
+            textDecoration: mode==='signin'?'underline':'none', textUnderlineOffset: 6
           }}
         >
           Sign in
         </button>
         <button
           type="button"
-          onClick={() => setMode('signup')}
+          onClick={()=>setMode('signup')}
           style={{
-            border: 'none',
-            background: 'none',
-            fontWeight: mode === 'signup' ? 800 : 600,
-            opacity: mode === 'signup' ? 1 : .45,
-            textDecoration: mode === 'signup' ? 'underline' : 'none',
-            cursor: 'pointer'
+            background:'none', border:'none', cursor:'pointer',
+            fontSize:16, fontWeight: mode==='signup'?800:600,
+            color: mode==='signup'?'#000':muted, padding:'0 2px',
+            textDecoration: mode==='signup'?'underline':'none', textUnderlineOffset: 6
           }}
         >
           Sign up
         </button>
       </div>
 
-      {/* Headline */}
-      <div style={{ textAlign: 'center', fontWeight: 800, fontSize: 18, marginBottom: 6 }}>
-        {mode === 'signup' ? 'Create an account' : 'Welcome back'}
+      {/* Headline + helper text */}
+      <div style={{ textAlign:'center', fontWeight:800, fontSize:18, marginBottom:8 }}>
+        {mode==='signup' ? 'Create an account' : 'Welcome back'}
       </div>
-      <div style={{ textAlign: 'center', color: 'var(--muted)', marginBottom: 18 }}>
-        {mode === 'signup' ? 'Enter your email to sign up for this app' : 'Enter your email to sign in'}
+      <div style={{ textAlign:'center', color: muted, marginBottom:16 }}>
+        {mode==='signup' ? 'Enter your email to sign up for this app' : 'Enter your email to sign in'}
       </div>
 
       {/* Form */}
-      <form onSubmit={onSubmit} className="grid" style={{ gap: 12 }}>
+      <form onSubmit={onSubmit} style={{ display:'grid', gap:12 }}>
         <input
           type="email"
           required
           placeholder="email@domain.com"
           value={email}
-          onChange={e => setEmail(e.target.value)}
-          className="line-input"
-          style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--card-border)' }}
+          onChange={e=>setEmail(e.target.value)}
+          style={{
+            height:48, padding:'0 14px', borderRadius:12,
+            border:`1px solid ${cardBorder}`, background:'#fff', fontSize:16
+          }}
         />
         <input
           type="password"
           required
           placeholder="password"
           value={password}
-          onChange={e => setPassword(e.target.value)}
-          className="line-input"
-          style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--card-border)' }}
+          onChange={e=>setPassword(e.target.value)}
+          style={{
+            height:48, padding:'0 14px', borderRadius:12,
+            border:`1px solid ${cardBorder}`, background:'#fff', fontSize:16
+          }}
         />
 
-        {err && <div style={{ color: '#b00020', fontSize: 14 }}>{err}</div>}
+        {err && <div style={{ color:'#b00020', fontSize:14 }}>{err}</div>}
 
         <button
           type="submit"
           disabled={busy}
-          className="button"
-          style={{ padding: '12px 14px', borderRadius: 12, fontWeight: 800, background: '#000', color: '#fff', opacity: busy ? .7 : 1 }}
+          style={{
+            height:48, borderRadius:14, border:'none', cursor:'pointer',
+            background:'#000', color:'#fff', fontWeight:800, fontSize:16,
+            opacity: busy ? .75 : 1
+          }}
         >
           {busy ? 'Please wait…' : 'Continue'}
         </button>
 
-        <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
+        <div style={{ textAlign:'center', color: muted, fontSize:12, marginTop:8 }}>
           By clicking continue, you agree to our <u>Terms of Service</u> and <u>Privacy Policy</u>
         </div>
       </form>
