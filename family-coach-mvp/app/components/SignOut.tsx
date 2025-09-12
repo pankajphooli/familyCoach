@@ -1,6 +1,6 @@
 'use client'
 import { useRouter } from 'next/navigation'
-import { createClient } from '../lib/supabaseClient'
+import { createClient } from '../../lib/supabaseClient'
 
 export default function SignOut({ className = 'button-outline', children = 'Sign out' }){
   const router = useRouter()
