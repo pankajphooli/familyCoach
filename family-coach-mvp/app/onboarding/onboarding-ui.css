@@ -1,0 +1,62 @@
+.ob-wrap{ padding-bottom:84px; }
+
+.page-h1{ font-size:28px; font-weight:800; margin:8px 0 12px; }
+
+.panel{
+  background:var(--card, rgba(0,0,0,.02));
+  border:1px solid var(--card-border, rgba(0,0,0,.12));
+  border-radius:18px; padding:14px; margin:10px 0;
+}
+.panel-title{ font-weight:800; margin-bottom:10px; }
+
+.grid{ display:grid; gap:12px; }
+.grid-2{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+@media (max-width: 480px){ .grid-2{ grid-template-columns: 1fr; } }
+
+.lbl{ font-weight:800; }
+
+.line-input{
+  width:100%; border:none; border-bottom:1px solid var(--card-border, rgba(0,0,0,.12));
+  background:transparent; padding:12px 6px; font-size:16px;
+}
+.pill-input{
+  width:100%; border-radius:999px; border:1px solid var(--card-border, rgba(0,0,0,.12));
+  background:var(--card, rgba(0,0,0,.02)); padding:10px 14px; font-weight:600;
+}
+
+.chips{ display:flex; gap:10px; overflow-x:auto; padding:8px 2px 4px; }
+.chips.wrap{ flex-wrap:wrap; overflow:visible; }
+.chip{
+  padding:10px 14px; border-radius:999px; border:1px solid var(--card-border, rgba(0,0,0,.12));
+  background:var(--card, rgba(0,0,0,.02)); font-weight:700; white-space:nowrap;
+}
+.chip.on{ background:#111; color:#fff; border-color:#111; }
+.dark .chip.on{ background:#fff; color:#000; border-color:#fff; }
+
+.chip.pill{ position:relative; padding-right:28px; }
+.chip.pill .x{
+  position:absolute; right:8px; top:50%; transform:translateY(-50%);
+  background:transparent; border:none; font-size:16px; line-height:1; opacity:.7; cursor:pointer;
+}
+
+.chip-input{
+  min-width:180px; border-radius:999px; border:1px dashed var(--card-border, rgba(0,0,0,.2));
+  background:transparent; padding:10px 14px; font-weight:600;
+}
+.chip.add{ background:transparent; }
+
+.actions{ display:flex; justify-content:flex-end; margin:12px 0 4px; }
+.button{
+  padding:12px 16px; border-radius:12px; background:#111; color:#fff; font-weight:800; border:1px solid #111;
+}
+.dark .button{ background:#fff; color:#000; border-color:#fff; }
+
+/* theme tokens if not already defined */
+:root{
+  --card: rgba(0,0,0,.02);
+  --card-border: rgba(0,0,0,.12);
+}
+.dark:root{
+  --card: rgba(255,255,255,.05);
+  --card-border: rgba(255,255,255,.22);
+}
