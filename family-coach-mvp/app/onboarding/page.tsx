@@ -58,16 +58,17 @@ export default function OnboardingPage() {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ kind: 'error' | 'success', text: string } | null>(null)
 
-  // form fields
+  // form state
   const [fullName, setFullName] = useState('')
-  const [sex, setSex] = useState<string>('male')
-  const [height, setHeight] = useState<string>('')          // cm
-  const [currentWeight, setCurrentWeight] = useState<string>('') // kg ← NEW
-  const [goalWeight, setGoalWeight] = useState<string>('')       // kg
-  const [goalDate, setGoalDate] = useState<string>('')           // yyyy-mm-dd
+  const [sex, setSex] = useState('male')
+  const [height, setHeight] = useState('') // cm
+  const [currentWeight, setCurrentWeight] = useState('') // kg
+  const [goalWeight, setGoalWeight] = useState('') // kg
+  const [goalDate, setGoalDate] = useState('') // yyyy-mm-dd
 
-  const [diet, setDiet] = useState<string>('veg')
+  const [diet, setDiet] = useState('veg')
   const [allergies, setAllergies] = useState<string[]>([])
   const [dislikes, setDislikes] = useState<string[]>([])
   const [cuisines, setCuisines] = useState<string[]>([])
@@ -91,7 +92,6 @@ export default function OnboardingPage() {
     }
     return { val, setVal, add, onKeyDown, remove }
   }
-
   const al = useChipInput(allergies, setAllergies)
   const dl = useChipInput(dislikes, setDislikes)
   const cu = useChipInput(cuisines, setCuisines)
@@ -99,18 +99,15 @@ export default function OnboardingPage() {
   const hc = useChipInput(conditions, setConditions)
   const eq = useChipInput(equipment, setEquipment)
 
-  function notify(kind: 'success' | 'error', msg: string) {
-    (window as any)?.toast?.(kind, msg)
-  }
-
-  // Prefill from existing profile + latest weight
   useEffect(() => {
-    ;(async () => {
+    (async () => {
       setLoading(true)
+      setMsg(null)
       try {
         const { data: { user } } = await supabase.auth.getUser()
-        if (!user) { setLoading(false); return }
+        if (!user) { setMsg({ kind: 'error', text: 'Please sign in to continue.' }); return }
 
+        // profile
         const sel =
           'full_name, sex, height_cm, goal_weight, goal_target_date, dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
         const res = await supabase
@@ -118,7 +115,6 @@ export default function OnboardingPage() {
           .select(sel)
           .eq('id', user.id)
           .maybeSingle()
-
         const p = (res.data || {}) as Profile
 
         if (p.full_name) setFullName(p.full_name)
@@ -126,7 +122,6 @@ export default function OnboardingPage() {
         if (p.height_cm != null) setHeight(String(p.height_cm))
         if (p.goal_weight != null) setGoalWeight(String(p.goal_weight))
         if (p.goal_target_date) setGoalDate(p.goal_target_date.substring(0, 10))
-
         if (p.dietary_pattern) setDiet(p.dietary_pattern)
         else if (p.meat_policy) setDiet(p.meat_policy)
 
@@ -137,7 +132,7 @@ export default function OnboardingPage() {
         setConditions(p.health_conditions || [])
         setEquipment(p.equipment || [])
 
-        // latest logged weight
+        // latest weight
         const w = await supabase
           .from('weights')
           .select('date, weight_kg')
@@ -146,6 +141,9 @@ export default function OnboardingPage() {
           .limit(1)
           .maybeSingle()
         if (w.data?.weight_kg != null) setCurrentWeight(String(w.data.weight_kg))
+      } catch (e) {
+        console.warn('Onboarding prefill error', e)
+        setMsg({ kind: 'error', text: 'Could not load your details.' })
       } finally {
         setLoading(false)
       }
@@ -154,11 +152,12 @@ export default function OnboardingPage() {
 
   async function onSave() {
     setSaving(true)
+    setMsg(null)
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { notify('error', 'Please sign in first'); return }
+      if (!user) { setMsg({ kind: 'error', text: 'Please sign in first.' }); return }
 
-      // 1) Upsert profile core
+      // Build profile payload
       const payload: any = {
         id: user.id,
         full_name: fullName.trim() || null,
@@ -176,19 +175,23 @@ export default function OnboardingPage() {
         equipment: cleanList(equipment),
       }
 
+      // Upsert profile
       const up = await supabase
         .from('profiles')
         .upsert(payload, { onConflict: 'id' })
         .select('id')
         .maybeSingle()
 
-      if (up.error) { notify('error', up.error.message); return }
+      if (up.error) {
+        console.error('Profile upsert error', up.error)
+        setMsg({ kind: 'error', text: up.error.message })
+        return
+      }
 
-      // 2) Save today's weight if provided
+      // Save today’s weight if provided
       const wt = currentWeight ? Number(currentWeight) : NaN
       if (!Number.isNaN(wt)) {
         const today = ymdLocal()
-        // try update today row; if none, insert
         const ex = await supabase
           .from('weights')
           .select('id')
@@ -197,25 +200,69 @@ export default function OnboardingPage() {
           .maybeSingle()
 
         if (ex.data?.id) {
-          await supabase.from('weights').update({ weight_kg: wt }).eq('id', ex.data.id)
+          const upd = await supabase.from('weights').update({ weight_kg: wt }).eq('id', ex.data.id)
+          if (upd.error) console.warn('weights update error', upd.error)
         } else {
-          await supabase.from('weights').insert({ user_id: user.id, date: today, weight_kg: wt })
+          const ins = await supabase.from('weights').insert({ user_id: user.id, date: today, weight_kg: wt })
+          if (ins.error) console.warn('weights insert error', ins.error)
         }
 
-        // Optional: also write to profiles.current_weight if column exists (ignore errors)
+        // Best-effort mirror to profiles.current_weight if column exists
         await supabase.from('profiles').update({ current_weight: wt } as any).eq('id', user.id)
       }
 
-      notify('success', 'Saved your details')
-      router.push('/profile') // go to “Your details”
+      setMsg({ kind: 'success', text: 'Saved your details.' })
+      router.push('/profile')
+    } catch (e: any) {
+      console.error('Onboarding save error', e)
+      setMsg({ kind: 'error', text: 'Something went wrong while saving.' })
     } finally {
       setSaving(false)
     }
   }
 
+  // UI helpers
+  const ChipEditor = ({
+    label,
+    hook,
+    items,
+    placeholder,
+  }: {
+    label: string
+    hook: { val: string; setVal: (v: string) => void; add: () => void; onKeyDown: (e: any) => void; remove: (i: number) => void }
+    items: string[]
+    placeholder?: string
+  }) => (
+    <div className="chip-editor" style={{ marginTop: 10 }}>
+      <label className="lbl">{label}</label>
+      <div className="chips wrap">
+        {items.map((t, i) => (
+          <span key={i} className="chip pill">
+            {t}
+            <button className="x" onClick={() => hook.remove(i)} aria-label="remove">×</button>
+          </span>
+        ))}
+        <input
+          className="chip-input"
+          placeholder={placeholder || `Add ${label.toLowerCase()}…`}
+          value={hook.val}
+          onChange={e => hook.setVal(e.target.value)}
+          onKeyDown={hook.onKeyDown}
+        />
+        <button className="chip add" onClick={hook.add}>Add</button>
+      </div>
+    </div>
+  )
+
   return (
     <div className="container ob-wrap">
       <h1 className="page-h1">Tell us about you</h1>
+
+      {msg && (
+        <div className={`banner ${msg.kind === 'error' ? 'error' : 'ok'}`} style={{ marginBottom: 12 }}>
+          {msg.text}
+        </div>
+      )}
 
       {/* Personal */}
       <section className="panel">
@@ -241,26 +288,14 @@ export default function OnboardingPage() {
             </div>
             <div>
               <label className="lbl">Height (cm)</label>
-              <input
-                className="pill-input"
-                inputMode="decimal"
-                placeholder="e.g., 175"
-                value={height}
-                onChange={e => setHeight(e.target.value)}
-              />
+              <input className="pill-input" inputMode="decimal" placeholder="e.g., 175" value={height} onChange={e => setHeight(e.target.value)} />
             </div>
           </div>
 
           <div className="grid-3">
             <div>
               <label className="lbl">Current weight (kg)</label>
-              <input
-                className="pill-input"
-                inputMode="decimal"
-                placeholder="e.g., 82"
-                value={currentWeight}
-                onChange={e => setCurrentWeight(e.target.value)}
-              />
+              <input className="pill-input" inputMode="decimal" placeholder="e.g., 82" value={currentWeight} onChange={e => setCurrentWeight(e.target.value)} />
             </div>
             <div>
               <label className="lbl">Goal weight (kg)</label>
@@ -277,7 +312,6 @@ export default function OnboardingPage() {
       {/* Diet */}
       <section className="panel">
         <div className="panel-title">Diet preferences</div>
-
         <div className="lbl">Dietary pattern</div>
         <div className="chips">
           {DIET_CHOICES.map(opt => (
@@ -291,63 +325,26 @@ export default function OnboardingPage() {
           ))}
         </div>
 
-        <ChipEditor label="Allergies" hook={useChipInputProxy(al)} items={allergies} />
-        <ChipEditor label="Dislikes" hook={useChipInputProxy(dl)} items={dislikes} />
-        <ChipEditor label="Cuisine preferences" hook={useChipInputProxy(cu)} items={cuisines} />
+        <ChipEditor label="Allergies" hook={al} items={allergies} />
+        <ChipEditor label="Dislikes" hook={dl} items={dislikes} />
+        <ChipEditor label="Cuisine preferences" hook={cu} items={cuisines} />
       </section>
 
       {/* Exercise */}
       <section className="panel">
         <div className="panel-title">Exercise constraints</div>
-        <ChipEditor label="Injuries" hook={useChipInputProxy(ij)} items={injuries} />
-        <ChipEditor label="Health conditions" hook={useChipInputProxy(hc)} items={conditions} />
-        <ChipEditor label="Equipment you have" hook={useChipInputProxy(eq)} items={equipment} placeholder="e.g., none, dumbbells, band" />
+        <ChipEditor label="Injuries" hook={ij} items={injuries} />
+        <ChipEditor label="Health conditions" hook={hc} items={conditions} />
+        <ChipEditor label="Equipment you have" hook={eq} items={equipment} placeholder="e.g., none, dumbbells, band" />
       </section>
 
       <div className="actions">
-        <button className="button" onClick={onSave} disabled={saving}>{saving ? 'Saving…' : 'Save & continue'}</button>
+        <button className="button" onClick={onSave} disabled={saving}>
+          {saving ? 'Saving…' : 'Save & continue'}
+        </button>
       </div>
 
       {loading && <div className="muted" style={{ marginTop: 8 }}>Loading…</div>}
-    </div>
-  )
-}
-
-/** small adapter to avoid re-creating objects in JSX */
-function useChipInputProxy(h: { val:string; setVal:(v:string)=>void; add:()=>void; onKeyDown:(e:React.KeyboardEvent<HTMLInputElement>)=>void; remove:(i:number)=>void }) {
-  return h
-}
-
-function ChipEditor({
-  label,
-  hook,
-  items,
-  placeholder,
-}: {
-  label: string
-  hook: { val:string; setVal:(v:string)=>void; add:()=>void; onKeyDown:(e:React.KeyboardEvent<HTMLInputElement>)=>void; remove:(i:number)=>void }
-  items: string[]
-  placeholder?: string
-}) {
-  return (
-    <div className="chip-editor" style={{marginTop: 10}}>
-      <label className="lbl">{label}</label>
-      <div className="chips wrap">
-        {items.map((t, i) => (
-          <span key={i} className="chip pill">
-            {t}
-            <button className="x" onClick={() => hook.remove(i)} aria-label="remove">×</button>
-          </span>
-        ))}
-        <input
-          className="chip-input"
-          placeholder={placeholder || `Add ${label.toLowerCase()}…`}
-          value={hook.val}
-          onChange={e => hook.setVal(e.target.value)}
-          onKeyDown={hook.onKeyDown}
-        />
-        <button className="chip add" onClick={hook.add}>Add</button>
-      </div>
     </div>
   )
 }
