@@ -1,148 +1,245 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import './family-ui.css'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createClient } from '../../lib/supabaseClient'   // <-- keep the capital C
 
-// IMPORTANT: adjust the casing to match your repo:
-// If your file is /lib/supabaseclient.ts (lowercase c):
-import { createClient } from '../../lib/supabaseClient'
-// If it's /lib/supabaseClient.ts (capital C), use:
-// import { createClient } from '../../lib/supabaseClient'
+type Family = { id: string; name: string | null; invite_code: string | null }
+type Profile = { id: string; full_name: string | null; family_id?: string | null }
+type MemberRow = { user_id: string; role: 'owner' | 'member'; can_manage_members: boolean; profiles: { full_name: string | null } | null }
+type Member = { user_id: string; name: string; role: 'owner' | 'member'; you: boolean }
+type Kid = { id: string; name: string; dob: string }
 
-type Family = { id: string; name: string | null; code?: string | null; invite_code?: string | null; join_code?: string | null }
-type ProfileLite = { full_name: string | null }
-type MemberRow = { user_id: string; role: 'owner'|'member'; can_manage_members?: boolean|null; profiles?: ProfileLite | ProfileLite[] | null }
-type Dependent = { id: string; name: string; dob: string|null }
+export default function FamilyPage() {
+  const supabase = useMemo(() => createClient(), [])
+  const [busy, setBusy] = useState(false)
 
-export default function FamilyPreview(){
-  const supabase = useMemo(()=>createClient(), [])
-  const [loading, setLoading]   = useState(true)
-  const [meId, setMeId]         = useState('')
-  const [family, setFamily]     = useState<Family|null>(null)
-  const [members, setMembers]   = useState<MemberRow[]>([])
-  const [kids, setKids]         = useState<Dependent[]>([])
+  const [me, setMe] = useState<Profile | null>(null)
+  const [fam, setFam] = useState<Family | null>(null)
+  const [members, setMembers] = useState<Member[]>([])
+  const [kids, setKids] = useState<Kid[]>([])
 
-  useEffect(()=>{ (async()=>{
-    setLoading(true)
-    const { data:{ user } } = await supabase.auth.getUser()
-    if(!user){ setLoading(false); return }
-    setMeId(user.id)
+  // add-kid form
+  const [kidName, setKidName] = useState('')
+  const [kidDob, setKidDob] = useState('')
+  const addBoxRef = useRef<HTMLDivElement | null>(null)
 
-    // Find family id (prefer membership → fallback profile)
-    let famId: string | null = null
-    const fm = await supabase.from('family_members').select('family_id').eq('user_id', user.id).limit(1).maybeSingle()
-    famId = (fm.data as any)?.family_id || null
-    if(!famId){
-      const pr = await supabase.from('profiles').select('family_id').eq('id', user.id).maybeSingle()
-      famId = (pr.data as any)?.family_id || null
-    }
-    if(!famId){ setLoading(false); return }
-
-    // Family
-    const f = await supabase.from('families').select('id,name,code,invite_code,join_code').eq('id', famId).maybeSingle()
-    setFamily((f.data as Family) || null)
-
-    // Members (read-only)
-    const mem = await supabase
-      .from('family_members')
-      .select('user_id, role, can_manage_members, profiles(full_name)')
-      .eq('family_id', famId)
-      .order('role', { ascending:false })
-    setMembers(((mem.data as any[])||[]))
-
-    // Kids
-    const dep = await supabase.from('dependents').select('id,name,dob').eq('family_id', famId).order('name')
-    setKids(((dep.data as any[])||[]) as Dependent[])
-
-    setLoading(false)
-  })() }, [supabase])
-
-  const codeValue = (f:Family|null) => f?.invite_code || f?.code || f?.join_code || '—'
-  const nameOf = (m:MemberRow) => {
-    const p = m.profiles
-    if(!p) return '—'
-    return Array.isArray(p) ? (p[0]?.full_name ?? '—') : (p.full_name ?? '—')
+  function notify(kind: 'success' | 'error', msg: string) {
+    if (typeof window !== 'undefined' && (window as any).toast) (window as any).toast(kind, msg)
+    else console[kind === 'error' ? 'warn' : 'log'](msg)
   }
 
-  if(loading){
-    return <div className="container"><div className="muted">Loading family…</div></div>
+  useEffect(() => {
+    (async () => {
+      setBusy(true)
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) { return }
+
+        // my profile
+        const profRes = await supabase.from('profiles')
+          .select('id, full_name, family_id').eq('id', user.id).maybeSingle()
+        const prof = (profRes.data || null) as Profile | null
+        setMe(prof)
+
+        if (!prof?.family_id) return
+
+        // family
+        const famRes = await supabase.from('families')
+          .select('id, name, invite_code').eq('id', prof.family_id).maybeSingle()
+        setFam((famRes.data || null) as Family | null)
+
+        // adults
+        const memRes = await supabase.from('family_members')
+          .select('user_id, role, can_manage_members, profiles!inner(full_name)')
+          .eq('family_id', prof.family_id)
+          .order('role', { ascending: false })   // owners first
+        const memRows = (memRes.data || []) as MemberRow[]
+        const mapped: Member[] = memRows.map(m => ({
+          user_id: m.user_id,
+          name: (m.profiles?.full_name ?? 'Member'),
+          role: m.role,
+          you: m.user_id === user.id
+        }))
+        setMembers(mapped)
+
+        // kids
+        const depRes = await supabase.from('dependents')
+          .select('id,name,dob').eq('family_id', prof.family_id).order('name')
+        setKids(((depRes.data || []) as any[]).map(r => ({ id: r.id, name: r.name, dob: r.dob })))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [supabase])
+
+  // ---- actions -------------------------------------------------------------
+
+  function scrollToAdd() {
+    addBoxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
-  if(!family){
+  async function regenerateCode() {
+    if (!fam) return
+    const code = Math.random().toString(36).slice(2, 7)
+    setBusy(true)
+    try {
+      const res = await supabase.from('families').update({ invite_code: code }).eq('id', fam.id).select().maybeSingle()
+      if (res.error) throw res.error
+      setFam({ ...fam, invite_code: res.data?.invite_code ?? code })
+      notify('success', 'Invite code updated')
+    } catch {
+      notify('error', 'Could not regenerate the code')
+    } finally { setBusy(false) }
+  }
+
+  async function addKid() {
+    if (!fam) return
+    if (!kidName.trim() || !kidDob) { notify('error', 'Enter name and DOB'); return }
+    setBusy(true)
+    try {
+      const ins = await supabase.from('dependents').insert({ family_id: fam.id, name: kidName.trim(), dob: kidDob }).select().maybeSingle()
+      if (ins.error) throw ins.error
+      setKids([...kids, { id: ins.data!.id, name: ins.data!.name, dob: ins.data!.dob }])
+      setKidName(''); setKidDob('')
+      notify('success', 'Child added')
+    } catch {
+      notify('error', 'Could not add child')
+    } finally { setBusy(false) }
+  }
+
+  async function removeKid(id: string) {
+    setBusy(true)
+    try {
+      const del = await supabase.from('dependents').delete().eq('id', id)
+      if (del.error) throw del.error
+      setKids(kids.filter(k => k.id !== id))
+      notify('success', 'Removed')
+    } catch {
+      notify('error', 'Could not remove')
+    } finally { setBusy(false) }
+  }
+
+  async function removeAdult(user_id: string) {
+    if (!fam) return
+    setBusy(true)
+    try {
+      // drop from join table; (profiles.family_id is kept as-is in your schema)
+      const del = await supabase.from('family_members').delete().eq('family_id', fam.id).eq('user_id', user_id)
+      if (del.error) throw del.error
+      setMembers(members.filter(m => m.user_id !== user_id))
+      notify('success', 'Member removed')
+    } catch {
+      notify('error', 'Could not remove member')
+    } finally { setBusy(false) }
+  }
+
+  // ---- view helpers --------------------------------------------------------
+
+  const Title = ({ children }: { children: any }) => (
+    <h1 className="text-3xl font-extrabold mb-1">Family</h1>
+  )
+
+  if (!me) {
     return (
-      <div className="container">
-        <h1 className="page-h1">Family</h1>
-        <div className="muted">No family found. Complete onboarding or join a family.</div>
+      <div className="container" style={{ display: 'grid', gap: 16 }}>
+        <Title>Family</Title>
+        <div className="muted">You’re not signed in. Sign in from the header.</div>
+      </div>
+    )
+  }
+  if (!fam) {
+    return (
+      <div className="container" style={{ display: 'grid', gap: 16 }}>
+        <Title>Family</Title>
+        <div className="muted">No family found yet. Create or join a family from onboarding.</div>
       </div>
     )
   }
 
   return (
-    <div className="container">
-      <h1 className="page-h1">Family</h1>
+    <div className="container" style={{ display: 'grid', gap: 16, paddingBottom: 84 }}>
+      <h1 className="text-3xl font-extrabold">Family</h1>
 
-      {/* Header row */}
-      <div className="fam-row">
-        <div className="fam-title">Family: <span className="fam-name">{family.name || '—'}</span></div>
-        <button className="btn btn-dark" disabled title="Preview page — actions disabled">Add Kids</button>
+      {/* Header row: Family: <name> + Add Kids */}
+      <div className="flex items-center justify-between">
+        <div className="text-2xl font-extrabold">
+          Family: <span className="font-extrabold">{fam.name || '—'}</span>
+        </div>
+        <button className="button" onClick={scrollToAdd}>Add Kids</button>
       </div>
 
-      {/* Invite row */}
-      <div className="invite-row">
-        <div className="invite-label">Invite Code</div>
-        <div className="invite-code">{codeValue(family)}</div>
-        <button className="btn btn-dark" disabled title="Preview page — actions disabled">Regenerate</button>
+      {/* Invite code + regenerate */}
+      <div className="flex items-center justify-between">
+        <div className="text-lg">
+          <span className="font-semibold">Invite Code</span>&nbsp;
+          <span className="font-mono tracking-wider">{fam.invite_code || '—'}</span>
+        </div>
+        <button className="button-outline" onClick={regenerateCode}>Regenerate</button>
       </div>
 
-      {/* Members */}
-      <section className="panel">
-        <div className="panel-title">Members</div>
-        <ol className="members">
-          {members.map((m, idx)=>(
-            <li key={m.user_id} className="member-row">
-              <div className="member-left">
-                <span className="m-index">{idx+1}.</span>
-                <span className="m-name">{nameOf(m)}</span>
-                <span className="m-tags">
-                  {m.role==='owner' && <span className="tag">(owner)</span>}
-                  {m.user_id===meId && <span className="tag">(you)</span>}
-                </span>
+      {/* Members panel */}
+      <section className="card" style={{ display: 'grid', gap: 12 }}>
+        <div className="text-xl font-extrabold">Members</div>
+
+        {/* Adults first, numbered */}
+        <ul className="grid gap-3">
+          {members.map((m, idx) => (
+            <li key={m.user_id} className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="opacity-60">{idx + 1}.</span>
+                <span className="font-bold">{m.name || 'Member'}</span>
+                {m.role === 'owner' && <span className="chip">owner</span>}
+                {m.you && <span className="chip">you</span>}
               </div>
-              <div className="member-right">
-                <button className="btn btn-outline sm" disabled title="Preview page — actions disabled">Remove</button>
-              </div>
+              <button className="button-outline" onClick={() => removeAdult(m.user_id)}>Remove</button>
             </li>
           ))}
-          {kids.map((k, idx)=>(
-            <li key={k.id} className="member-row">
-              <div className="member-left">
-                <span className="m-index">{members.length+idx+1}.</span>
-                <span className="m-name">{k.name}</span>
-                <span className="m-tags">
-                  <span className="tag">(child)</span>
-                  {k.dob && <span className="dob"> DOB {new Date(k.dob).toLocaleDateString()}</span>}
-                </span>
-              </div>
-              <div className="member-right">
-                <button className="btn btn-outline sm" disabled title="Preview page — actions disabled">Remove</button>
-              </div>
-            </li>
-          ))}
-          {members.length===0 && kids.length===0 && <li className="muted">No members yet.</li>}
-        </ol>
+
+          {/* Kids (dependents) continue numbering after adults */}
+          {kids.map((k, j) => {
+            const n = members.length + j + 1
+            return (
+              <li key={k.id} className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="opacity-60">{n}.</span>
+                  <span className="font-bold">{k.name}</span>
+                  <span className="chip">child</span>
+                  {k.dob && <span className="opacity-70">DOB {new Date(k.dob).toLocaleDateString()}</span>}
+                </div>
+                <button className="button-outline" onClick={() => removeKid(k.id)}>Remove</button>
+              </li>
+            )
+          })}
+        </ul>
       </section>
 
-      {/* Add Items (disabled in preview) */}
-      <section className="panel">
-        <div className="panel-title">Add Kids</div>
-        <div className="add-grid">
-          <div className="field"><input className="line-input" placeholder="Name" disabled /></div>
-          <div className="field"><input className="line-input" placeholder="Dob" type="date" disabled /></div>
-          <div className="actions right">
-            <button className="btn btn-dark" disabled title="Preview page — actions disabled">Add</button>
-          </div>
+      {/* Add kid form */}
+      <section ref={addBoxRef} className="card" style={{ display: 'grid', gap: 10 }}>
+        <div className="text-lg font-extrabold">Add Items</div>
+        <input
+          className="line-input"
+          placeholder="Name"
+          value={kidName}
+          onChange={e => setKidName(e.target.value)}
+        />
+        <input
+          className="line-input"
+          placeholder="Dob"
+          type="date"
+          value={kidDob}
+          onChange={e => setKidDob(e.target.value)}
+        />
+        <div className="flex justify-end">
+          <button className="button" onClick={addKid}>Add</button>
         </div>
       </section>
+
+      {busy && <div className="muted">Working…</div>}
     </div>
   )
+}
+
+/* Small pill label that matches the rest of the app */
+function Chip({ children }: { children: any }) {
+  return <span className="chip">{children}</span>
 }
