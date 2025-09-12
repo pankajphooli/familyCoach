@@ -141,3 +141,35 @@
 }
 .dark .chipbtn{ background:transparent; color:#fff; border-color:#fff; }
 .mr-actions{ display:flex; gap:10px; flex-wrap:wrap; }
+
+
+/* Two-line meal layout */
+.mealrow { padding:12px 0; border-bottom:1px solid var(--card-border); }
+.mealrow:last-child { border-bottom:none; }
+
+.mr-top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.mr-left { font-weight:800; font-size:16px; }
+.mr-right { opacity:.85; font-weight:600; }
+
+.mr-second { display:flex; flex-direction:column; gap:8px; margin-top:6px; }
+.mr-title { display:block; font-size:16px; font-weight:600; }
+
+/* Actions must wrap to NEXT LINE under the title */
+.mr-actions {
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  /* ensure it starts on its own visual line below the title */
+  margin-top: 2px;
+}
+
+/* Pill buttons look/spacing */
+.chipbtn{
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:8px 14px;
+  border:1.5px solid #1a1a1a;
+  border-radius:999px;
+  background:#fff; color:#111;
+  font-weight:800; font-size:14px; line-height:1;
+}
+.dark .chipbtn{ background:transparent; color:#fff; border-color:#fff; }
