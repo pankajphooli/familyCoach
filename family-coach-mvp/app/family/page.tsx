@@ -11,6 +11,7 @@ type Member = {
   isYou?: boolean
 }
 type Dependent = { id: string; name: string; dob: string | null }
+type FamilyLite = { id: string; name: string | null; invite_code: string | null }
 
 export default function FamilyPage(){
   const supabase = useMemo(()=>createClient(), [])
@@ -162,10 +163,10 @@ async function onJoinFamily(){
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setJoinErr('Please sign in first'); return }
 
-    // look up family by code via RPC (bypasses RLS safely)
+    // lookup via RPC (typed)
     const { data: fam, error: rpcErr } = await supabase
       .rpc('lookup_family_by_code', { p_code: code })
-      .single()
+      .single<FamilyLite>()   // 👈 tell TS the shape
 
     if (rpcErr) { setJoinErr(`Lookup failed: ${rpcErr.message}`); return }
     if (!fam?.id) { setJoinErr('Invalid code'); return }
@@ -177,7 +178,7 @@ async function onJoinFamily(){
       .eq('id', user.id)
     if (up.error) { setJoinErr(`Link failed: ${up.error.message}`); return }
 
-    // ensure membership row (ignore duplicate)
+    // ensure membership (ignore duplicate)
     const ins = await supabase
       .from('family_members')
       .insert({ family_id: fam.id, user_id: user.id, role:'member', can_manage_members:false })
