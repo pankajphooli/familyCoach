@@ -1,48 +1,70 @@
-/* Page spacing */
-.page-h1{ font-size:40px; font-weight:800; margin:8px 0 16px; }
+.fam-wrap{ padding-bottom:84px; }
 
-/* Top rows */
-.fam-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin:4px 0 8px; }
-.fam-title{ font-size:22px; font-weight:800; }
-.fam-name{ font-weight:800; }
+.page-h1{ font-size:32px; font-weight:800; margin:8px 0 12px; }
+.bold{ font-weight:800; }
 
-.invite-row{ display:flex; align-items:center; gap:12px; margin:10px 0 14px; flex-wrap:wrap; }
-.invite-label{ font-weight:800; }
-.invite-code{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight:800; letter-spacing:2px; }
+/* header row */
+.fam-head{
+  display:flex; align-items:center; justify-content:space-between;
+  margin:6px 0 10px; gap:12px;
+}
+.fam-title{ font-size:20px; font-weight:700; }
 
-/* Panel (card) */
-.panel{ background:var(--card); border:1px solid var(--card-border); border-radius:18px; padding:16px; box-shadow:var(--shadow-sm); }
-.panel-title{ font-size:18px; font-weight:800; margin-bottom:8px; }
-
-/* Members list */
-.members{ list-style:none; padding:0; margin:0; }
-.member-row{ display:flex; align-items:center; justify-content:space-between; padding:12px 4px; border-bottom:1px solid var(--card-border); }
-.member-row:last-child{ border-bottom:none; }
-.member-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-.m-index{ width:22px; text-align:right; opacity:.7; font-weight:700; }
-.m-name{ font-weight:800; }
-.m-tags{ color:var(--muted); }
-.tag{ margin-left:6px; }
-.dob{ margin-left:8px; }
-
-/* Add section */
-.add-grid{ display:grid; grid-template-columns: 1fr 1fr auto; gap:12px; }
-.field{ display:flex; flex-direction:column; }
-.line-input{
-  width:100%; border:none; border-bottom:1px solid var(--card-border);
-  background:transparent; padding:12px 4px; font-size:16px;
+/* invite row */
+.invite-row{
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  margin: 6px 0 14px;
+}
+.invite-label{ font-weight:800; color:var(--muted); }
+.invite-code{
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding:6px 10px; border:1px solid var(--card-border); border-radius:10px;
+  background:var(--card);
 }
 
-/* Buttons */
-.btn{ padding:10px 14px; border-radius:12px; font-weight:700; }
-.btn-dark{ background:#111; color:#fff; border:1px solid #111; }
-.btn-outline{ background:transparent; border:1.5px solid #111; color:#111; }
-.dark .btn-outline{ border-color:#fff; color:#fff; }
-.btn.sm{ padding:8px 12px; border-radius:10px; }
+/* panel */
+.panel{ background:var(--card); border:1px solid var(--card-border); border-radius:18px; padding:14px; margin:12px 0; }
+.panel-title{ font-weight:800; margin-bottom:10px; }
 
-.actions.right{ display:flex; justify-content:flex-end; }
+/* member list */
+.mem-list{ list-style:none; padding:0; margin:0; display:grid; gap:8px; }
+.mem-row{ display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--card-border); }
+.mem-row:last-child{ border-bottom:none; }
+.mem-left{ display:flex; align-items:center; gap:12px; }
+.mem-name{ font-size:16px; font-weight:700; }
+.mem-tags{ display:flex; gap:8px; color:var(--muted); }
+.mem-tag.plain{ font-weight:600; }
 
-/* Mobile tweaks */
-@media (max-width:640px){
-  .add-grid{ grid-template-columns: 1fr; }
+/* add form */
+.form-grid{ display:grid; gap:10px; }
+.line-input{
+  width:100%; border:none; border-bottom:1px solid var(--card-border);
+  background:transparent; padding:12px 6px; font-size:16px;
+}
+
+.actions{ display:flex; justify-content:flex-end; margin-top:12px; }
+
+/* buttons */
+.btn{
+  padding:10px 14px; border-radius:12px; background:#111; color:#fff; font-weight:800;
+  border:1px solid #111;
+}
+.dark .btn{ background:#fff; color:#000; border-color:#fff; }
+
+.btn-outline{
+  padding:8px 14px; border-radius:12px; background:transparent; color:inherit;
+  border:1px solid var(--card-border); font-weight:800;
+}
+.btn-outline.sm{ padding:8px 12px; }
+
+/* variables used across app */
+:root{
+  --card: rgba(0,0,0,.02);
+  --card-border: rgba(0,0,0,.12);
+  --muted: rgba(0,0,0,.55);
+}
+.dark:root{
+  --card: rgba(255,255,255,.05);
+  --card-border: rgba(255,255,255,.22);
+  --muted: rgba(255,255,255,.7);
 }
