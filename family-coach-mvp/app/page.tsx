@@ -15,12 +15,21 @@ type Profile = {
   goal_date?: string | null
   target_date?: string | null
   goal_target_date?: string | null
+  /* possible current weight fallbacks */
+  current_weight_kg?: number | string | null
+  weight_kg?: number | string | null
+  last_weight_kg?: number | string | null
+  current_weight?: number | string | null
 }
+
 type PlanDay = { id: string; date: string }
 type WorkoutDay = { id: string; date: string }
+
 type Meal = { id: string; plan_day_id: string; meal_type: string; recipe_name: string | null }
 type WorkoutBlock = { id: string; workout_day_id: string; kind?: string | null; title?: string | null; details?: string | null }
+
 type CalEvent = { id: string; date: string; title: string; start_time?: string | null; end_time?: string | null }
+
 type GroceryItem = { id: string; name: string; quantity?: number | null; unit?: string | null; done?: boolean | null }
 
 /* ===== Helpers ===== */
@@ -62,17 +71,21 @@ const mealLabel = (t?: string) => {
   return 'Meal'
 }
 const timeRange = (a?: string | null, b?: string | null) =>
-  (a || b) ? `${(a || '').slice(0, 5)} - ${(b || '').slice(0, 5)}` : ''
+  (a || b) ? `${(a || '').slice(0, 5)} – ${(b || '').slice(0, 5)}` : ''
+
+function toNum(x: any): number | null {
+  const n = typeof x === 'string' ? parseFloat(x) : x
+  return Number.isFinite(n) ? n : null
+}
 
 function extractGoal(prof: any) {
-  // handle multiple historical column names safely
   const goalRaw =
     prof?.goal_weight_kg ??
     prof?.target_weight_kg ??
     prof?.goal_weight ??
     prof?.target_weight ??
     null
-  const goalKg = typeof goalRaw === 'string' ? parseFloat(goalRaw) : goalRaw
+  const goalKg = toNum(goalRaw)
 
   const dateRaw =
     prof?.target_date ??
@@ -81,13 +94,37 @@ function extractGoal(prof: any) {
     null
 
   const targetDate = dateRaw ? new Date(String(dateRaw)) : null
-  return { goalKg: isFinite(goalKg as number) ? (goalKg as number) : null, targetDate }
+  return { goalKg, targetDate }
 }
+
+function extractCurrentWeight(prof: any) {
+  const wRaw =
+    prof?.current_weight_kg ??
+    prof?.weight_kg ??
+    prof?.last_weight_kg ??
+    prof?.current_weight ??
+    null
+  return toNum(wRaw)
+}
+
 function daysLeft(to: Date | null) {
   if (!to) return null
   const t0 = new Date(new Date().toDateString()).getTime()
   const t1 = new Date(to.getFullYear(), to.getMonth(), to.getDate()).getTime()
   return Math.max(0, Math.ceil((t1 - t0) / 86400000))
+}
+
+/* De-dupe meals per day for display: show only one of each Breakfast/Lunch/Dinner (in that order) */
+function dedupeMealsForDisplay(meals: Meal[]) {
+  const order = ['breakfast', 'lunch', 'dinner']
+  const pick: Record<string, Meal | null> = { breakfast: null, lunch: null, dinner: null }
+  for (const m of meals) {
+    const key = (m.meal_type || '').toLowerCase()
+    if (key.includes('break') && !pick.breakfast) pick.breakfast = m
+    else if (key.includes('lunch') && !pick.lunch) pick.lunch = m
+    else if (key.includes('dinner') && !pick.dinner) pick.dinner = m
+  }
+  return order.map(k => pick[k]).filter(Boolean) as Meal[]
 }
 
 /* ===== Component ===== */
@@ -107,7 +144,7 @@ export default function HomePage() {
   const [goalKg, setGoalKg] = useState<number | null>(null)
   const [targetDate, setTargetDate] = useState<string | null>(null)
   const [daysToGo, setDaysToGo] = useState<number | null>(null)
-  const [kgAboveGoal, setKgAboveGoal] = useState<number | null>(null)
+  const [kgDeltaText, setKgDeltaText] = useState<string>('—')
 
   const [eventsByDate, setEventsByDate] = useState<Record<string, CalEvent[]>>({})
   const [mealsByDate, setMealsByDate] = useState<Record<string, Meal[]>>({})
@@ -129,6 +166,15 @@ export default function HomePage() {
     return null
   }
 
+  function recomputeDelta(latest: number | null, goal: number | null) {
+    if (latest != null && goal != null) {
+      const diff = +(latest - goal).toFixed(1)
+      setKgDeltaText(`${Math.abs(diff)} Kg ${diff > 0 ? 'above' : diff < 0 ? 'below' : 'at'} goal`)
+    } else {
+      setKgDeltaText('—')
+    }
+  }
+
   function applyBundleLike(d: any, uid: string) {
     // Profile & goal
     const prof = (d?.profile || d?.profiles || null) as Profile | null
@@ -136,18 +182,14 @@ export default function HomePage() {
     const { goalKg, targetDate } = extractGoal(prof || {})
     setGoalKg(goalKg)
     setTargetDate(targetDate ? ymd(targetDate) : null)
-
-    // Latest weight (if included)
-    const bundleWeight = d?.weights?.kg ?? d?.weights?.[0]?.kg ?? null
-    if (bundleWeight != null) setLatestWeight(bundleWeight)
-
-    // Compute derived
     setDaysToGo(daysLeft(targetDate))
-    if (bundleWeight != null && goalKg != null) {
-      setKgAboveGoal(Math.max(0, +(bundleWeight - goalKg).toFixed(1)))
-    } else {
-      setKgAboveGoal(null)
-    }
+
+    // Latest weight: bundle or fall back to profile current weight
+    const bundleWeight = toNum(d?.weights?.kg ?? d?.weights?.[0]?.kg ?? null)
+    const profWeight = extractCurrentWeight(prof || {})
+    const latest = bundleWeight ?? profWeight ?? null
+    setLatestWeight(latest)
+    recomputeDelta(latest, goalKg)
 
     // Events
     const evs = Array.isArray(d?.events) ? d.events : []
@@ -177,6 +219,8 @@ export default function HomePage() {
       const dt = pdBy[m.plan_day_id]
       if (dt) (mBy[dt] ||= []).push(m)
     }
+    // de-dupe for display
+    Object.keys(mBy).forEach(dt => { mBy[dt] = dedupeMealsForDisplay(mBy[dt]) })
     setMealsByDate(mBy)
 
     // Workout blocks
@@ -192,38 +236,71 @@ export default function HomePage() {
     }
     setBlocksByDate(bBy)
 
-    // Grocery
+    // Grocery (if present in bundle)
     const g = Array.isArray(d?.grocery) ? d.grocery : []
     if (g.length) setGrocery(g as GroceryItem[])
+  }
+
+  async function robustGroceryLoad(uid: string) {
+    // Try grocery_items with done=false
+    let r = await supabase.from('grocery_items')
+      .select('id,name,quantity,unit,done')
+      .eq('user_id', uid)
+      .eq('done', false)
+      .order('name')
+
+    if (r.error) {
+      // Table might not exist → try shopping_items
+      const s = await supabase.from('shopping_items')
+        .select('id,name,quantity,unit,done')
+        .eq('user_id', uid)
+        .eq('done', false)
+        .order('name')
+      if (!s.error && s.data) { setGrocery(s.data as GroceryItem[]); return }
+    }
+
+    // If 0 rows (maybe no done flag used), try done IS NULL
+    if (!r.error && (r.data || []).length === 0) {
+      const r2 = await supabase.from('grocery_items')
+        .select('id,name,quantity,unit,done')
+        .eq('user_id', uid)
+        .is('done', null)
+        .order('name')
+      if (!r2.error && r2.data && r2.data.length) { setGrocery(r2.data as GroceryItem[]); return }
+    }
+
+    // Finally, try without any done filter
+    if ((!r.error && (r.data || []).length === 0) || r.error) {
+      const r3 = await supabase.from('grocery_items')
+        .select('id,name,quantity,unit,done')
+        .eq('user_id', uid)
+        .order('name')
+      if (!r3.error && r3.data) { setGrocery(r3.data as GroceryItem[]); return }
+    }
+
+    // Default
+    setGrocery(((r.data || []) as GroceryItem[]))
   }
 
   async function loadAll(uid: string) {
     setBusy(true)
     try {
-      // Try cached bundle first (if you adopted the RPC in the future)
+      // cached bundle (if you added the RPC earlier)
       const cacheKey = `dash:${uid}:${weekDates[0]}`
       const cached = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(cacheKey) : null
-      if (cached) {
-        applyBundleLike(JSON.parse(cached), uid)
-      }
+      if (cached) applyBundleLike(JSON.parse(cached), uid)
 
-      // Try calling dashboard_bundle RPC if present; if not, fallback to parallel selects
-      let usedBundle: any = null
+      // try dashboard_bundle RPC if present
       const rpc = await supabase.rpc('dashboard_bundle', {
         p_uid: uid,
         p_start: weekDates[0],
         p_end: weekDates[6],
       })
       if (!rpc.error && rpc.data) {
-        usedBundle = rpc.data
-        try {
-          sessionStorage.setItem(cacheKey, JSON.stringify(rpc.data))
-        } catch {}
-        applyBundleLike(usedBundle, uid)
-      }
-
-      if (!usedBundle) {
-        // Fallback to direct reads (parallel)
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(rpc.data)) } catch {}
+        applyBundleLike(rpc.data, uid)
+      } else {
+        // Fallback: parallel direct reads
         const evTable = await detectEventsTable()
         const [
           profRes,
@@ -231,17 +308,16 @@ export default function HomePage() {
           pdRes,
           wdRes,
           evRes,
-          groceryTry1,
-          // we can add more here if needed
         ] = await Promise.all([
-          supabase.from('profiles').select('full_name, goal_weight_kg, target_weight_kg, goal_weight, target_weight, goal_date, target_date, goal_target_date').eq('id', uid).maybeSingle(),
+          supabase.from('profiles').select(
+            'full_name, goal_weight_kg, target_weight_kg, goal_weight, target_weight, goal_date, target_date, goal_target_date, current_weight_kg, weight_kg, last_weight_kg, current_weight'
+          ).eq('id', uid).maybeSingle(),
           supabase.from('weights').select('kg').eq('user_id', uid).order('date', { ascending: false }).limit(1).maybeSingle(),
           supabase.from('plan_days').select('id,date').eq('user_id', uid).in('date', weekDates),
           supabase.from('workout_days').select('id,date').eq('user_id', uid).in('date', weekDates),
           evTable
             ? supabase.from(evTable).select('id,title,name,date,start_time,end_time,starts_at,ends_at').gte('date', weekDates[0]).lte('date', weekDates[6])
             : Promise.resolve({ data: [] } as any),
-          supabase.from('grocery_items').select('id,name,quantity,unit,done').eq('user_id', uid).eq('done', false).order('name'),
         ])
 
         const prof = (profRes.data || null) as Profile | null
@@ -249,12 +325,11 @@ export default function HomePage() {
         const { goalKg, targetDate } = extractGoal(prof || {})
         setGoalKg(goalKg)
         setTargetDate(targetDate ? ymd(targetDate) : null)
-
-        const wkg = (weightRes.data as any)?.kg ?? null
-        setLatestWeight(wkg)
         setDaysToGo(daysLeft(targetDate))
-        if (wkg != null && goalKg != null) setKgAboveGoal(Math.max(0, +(wkg - goalKg).toFixed(1)))
-        else setKgAboveGoal(null)
+
+        const latest = toNum((weightRes.data as any)?.kg) ?? extractCurrentWeight(prof || {}) ?? null
+        setLatestWeight(latest)
+        recomputeDelta(latest, goalKg)
 
         const pds = (pdRes.data || []) as PlanDay[]
         const wds = (wdRes.data || []) as WorkoutDay[]
@@ -287,15 +362,18 @@ export default function HomePage() {
         const byMeals: Record<string, Meal[]> = {}
         weekDates.forEach(d => (byMeals[d] = []))
         for (const pd of pds) byMeals[pd.date] = meals.filter(m => m.plan_day_id === pd.id)
+        // de-dupe view for each day
+        Object.keys(byMeals).forEach(dt => { byMeals[dt] = dedupeMealsForDisplay(byMeals[dt]) })
         setMealsByDate(byMeals)
 
         const byBlocks: Record<string, WorkoutBlock[]> = {}
         weekDates.forEach(d => (byBlocks[d] = []))
         for (const wd of wds) byBlocks[wd.date] = blocks.filter(b => b.workout_day_id === wd.id)
         setBlocksByDate(byBlocks)
-
-        setGrocery(((groceryTry1 as any).data || []) as GroceryItem[])
       }
+
+      // Grocery snapshot (independent robust loader so it always shows)
+      await robustGroceryLoad(uid)
     } catch (e) {
       console.warn('home load error', e)
       toast('error', 'Failed to load dashboard')
@@ -333,9 +411,10 @@ export default function HomePage() {
   const name = profile?.full_name || 'there'
 
   const showDate = tab === 'today' ? todayStr : selDate
-  const listEvents = eventsByDate[showDate] || []
-  const listMeals = mealsByDate[showDate] || []
-  const listBlocks = blocksByDate[showDate] || []
+  const rawMeals = mealsByDate[showDate] || []
+  const listMeals = dedupeMealsForDisplay(rawMeals) // extra safety
+  const listEvents = (eventsByDate[showDate] || [])
+  const listBlocks = (blocksByDate[showDate] || [])
 
   async function addWeight() {
     try {
@@ -345,8 +424,7 @@ export default function HomePage() {
       const r = await supabase.from('weights').insert({ user_id: userId, date: todayStr, kg })
       if (r.error) { toast('error', 'Could not save weight'); return }
       setLatestWeight(kg)
-      // re-compute goal delta if goal present
-      if (goalKg != null) setKgAboveGoal(Math.max(0, +(kg - goalKg).toFixed(1)))
+      recomputeDelta(kg, goalKg)
       setLogKg('')
       toast('success', 'Weight logged')
     } catch {
@@ -370,11 +448,7 @@ export default function HomePage() {
         <div className={styles.goalRow}><div>Your Goal</div><div className={styles.goalVal}>{goalKg != null ? `${goalKg} Kg` : '—'}</div></div>
         <div className={styles.goalRow}><div>Target Date</div><div className={styles.goalVal}>{targetDate || '—'}</div></div>
         <div className={styles.goalRow}><div>Days to go</div><div className={styles.goalVal}>{daysToGo ?? '—'}</div></div>
-        <div className={styles.goalDiff}>
-          {(latestWeight != null && goalKg != null)
-            ? `${Math.abs(+(latestWeight - goalKg).toFixed(1))} Kg ${latestWeight > goalKg ? 'above' : 'below'} goal`
-            : '—'}
-        </div>
+        <div className={styles.goalDiff}>{kgDeltaText}</div>
       </section>
 
       {/* Tabs: Today / Week — font size bumped */}
@@ -464,7 +538,7 @@ export default function HomePage() {
         }
       </section>
 
-      {/* Grocery snapshot — includes fallback so it shows up now */}
+      {/* Grocery snapshot — robust fallback so it shows */}
       <section className="panel">
         <div className={styles.sectionTitle}>Your Grocery list</div>
         {(busy && userId)
