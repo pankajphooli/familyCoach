@@ -1,260 +1,312 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { createClient } from '../../lib/supabaseClient'
+import { useEffect, useMemo, useState } from 'react'
+import { createClient } from '../../lib/supabaseClient' // ← change casing if your file differs
+import { useRouter } from 'next/navigation'
 
-type Family = { id: string; name: string | null; invite_code: string | null }
-type Profile = { id: string; full_name: string | null; family_id?: string | null }
-type Member = { user_id: string; name: string; role: 'owner' | 'member'; you: boolean }
-type Kid = { id: string; name: string; dob: string }
+type Member = {
+  user_id: string
+  name: string
+  role: 'owner' | 'member'
+  can_manage_members: boolean
+  isYou?: boolean
+}
 
-export default function FamilyPage() {
-  const supabase = useMemo(() => createClient(), [])
-  const [busy, setBusy] = useState(false)
+type Dependent = { id: string; name: string; dob: string | null }
 
-  const [me, setMe] = useState<Profile | null>(null)
-  const [fam, setFam] = useState<Family | null>(null)
+export default function FamilyPage(){
+  const supabase = useMemo(()=>createClient(), [])
+  const router = useRouter()
+
+  const [loading, setLoading] = useState(true)
+  const [needSignIn, setNeedSignIn] = useState(false)
+  const [userId, setUserId] = useState<string>('')
+
+  const [familyId, setFamilyId] = useState<string | null>(null)
+  const [familyName, setFamilyName] = useState<string>('')
+  const [inviteCode, setInviteCode] = useState<string>('')
+
   const [members, setMembers] = useState<Member[]>([])
-  const [kids, setKids] = useState<Kid[]>([])
+  const [kids, setKids] = useState<Dependent[]>([])
 
-  // add-kid form
+  // create/join inputs
+  const [newFamilyName, setNewFamilyName] = useState('')
+  const [joinCode, setJoinCode] = useState('')
+
+  // add-kid inputs
   const [kidName, setKidName] = useState('')
   const [kidDob, setKidDob] = useState('')
-  const addBoxRef = useRef<HTMLDivElement | null>(null)
 
-  function notify(kind: 'success' | 'error', msg: string) {
-    if (typeof window !== 'undefined' && (window as any).toast) (window as any).toast(kind, msg)
-    else console[kind === 'error' ? 'warn' : 'log'](msg)
+  const [busyCreate, setBusyCreate] = useState(false)
+  const [busyJoin, setBusyJoin] = useState(false)
+  const [busyKid, setBusyKid] = useState(false)
+
+  function toast(kind:'success'|'error'|'info', msg:string){
+    (window as any)?.toast ? (window as any).toast(kind, msg) : (kind==='error' ? console.warn(msg) : console.log(msg))
   }
 
-  useEffect(() => {
-    (async () => {
-      setBusy(true)
-      try {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) { return }
+  function nameFromProfiles(p: any): string {
+    // Supabase sometimes returns an object for single relation, or an array; be defensive
+    if (!p) return 'Member'
+    if (Array.isArray(p)) return p[0]?.full_name ?? 'Member'
+    return p.full_name ?? 'Member'
+  }
 
-        // my profile
-        const profRes = await supabase
-          .from('profiles')
-          .select('id, full_name, family_id')
-          .eq('id', user.id)
-          .maybeSingle()
-        const prof = (profRes.data || null) as Profile | null
-        setMe(prof)
+  async function load(){
+    setLoading(true)
+    try{
+      const { data: { user } } = await supabase.auth.getUser()
+      if(!user){ setNeedSignIn(true); return }
+      setUserId(user.id)
 
-        if (!prof?.family_id) return
+      // get your profile
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('id, full_name, family_id')
+        .eq('id', user.id)
+        .maybeSingle()
 
-        // family
-        const famRes = await supabase
+      const famId = (prof as any)?.family_id ?? null
+      setFamilyId(famId)
+
+      if(famId){
+        // family basic info
+        const { data: fam } = await supabase
           .from('families')
-          .select('id, name, invite_code')
-          .eq('id', prof.family_id)
+          .select('id,name,invite_code')
+          .eq('id', famId)
           .maybeSingle()
-        setFam((famRes.data || null) as Family | null)
+        if(fam){
+          setFamilyName((fam as any).name || '')
+          setInviteCode(String((fam as any).invite_code || '').toLowerCase())
+        }
 
-        // adults (handle profiles as object OR array)
+        // members with profile names
         const memRes = await supabase
           .from('family_members')
-          .select('user_id, role, can_manage_members, profiles!inner(full_name)')
-          .eq('family_id', prof.family_id)
-          .order('role', { ascending: false })
-
-        const memRows = (memRes.data as any[]) || []
-
-        const nameFromProfiles = (p: any) =>
-          Array.isArray(p) ? (p[0]?.full_name ?? 'Member') : (p?.full_name ?? 'Member')
-
-        const mapped: Member[] = memRows.map((m: any) => ({
-          user_id: m.user_id,
-          name: nameFromProfiles(m.profiles),
-          role: m.role as 'owner' | 'member',
-          you: m.user_id === user.id
+          .select('user_id, role, can_manage_members, profiles(full_name)')
+          .eq('family_id', famId)
+          .order('role', { ascending: false }) // owners first
+        const rows = (memRes.data || []) as any[]
+        const enriched: Member[] = rows.map(r=>({
+          user_id: r.user_id,
+          role: r.role,
+          can_manage_members: !!r.can_manage_members,
+          name: nameFromProfiles(r.profiles),
+          isYou: r.user_id === user.id
         }))
-        setMembers(mapped)
+        setMembers(enriched)
 
-        // kids
+        // dependents (kids)
         const depRes = await supabase
           .from('dependents')
           .select('id,name,dob')
-          .eq('family_id', prof.family_id)
+          .eq('family_id', famId)
           .order('name')
-        setKids(((depRes.data || []) as any[]).map(r => ({ id: r.id, name: r.name, dob: r.dob })))
-      } finally {
-        setBusy(false)
+        setKids(((depRes.data || []) as any[]).map(r=>({ id: r.id, name: r.name, dob: r.dob })))
+      } else {
+        // clear lists if no family
+        setMembers([])
+        setKids([])
       }
-    })()
-  }, [supabase])
-
-  // ---- actions -------------------------------------------------------------
-
-  function scrollToAdd() {
-    addBoxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } finally {
+      setLoading(false)
+    }
   }
 
-  async function regenerateCode() {
-    if (!fam) return
-    const code = Math.random().toString(36).slice(2, 7)
-    setBusy(true)
-    try {
-      const res = await supabase
+  useEffect(()=>{ load() }, []) // eslint-disable-line
+
+  function makeCode(){ return Math.random().toString(36).slice(2,7).toLowerCase() }
+
+  async function onCreateFamily(){
+    if(!userId){ toast('error','Sign in first'); return }
+    if(!newFamilyName.trim()){ toast('error','Enter a family name'); return }
+    setBusyCreate(true)
+    try{
+      // ensure unique code (light retry)
+      let code = makeCode()
+      for(let i=0;i<3;i++){
+        const { data: exists } = await supabase.from('families').select('id').eq('invite_code', code).maybeSingle()
+        if(!exists) break
+        code = makeCode()
+      }
+
+      const { data: fam, error } = await supabase
         .from('families')
-        .update({ invite_code: code })
-        .eq('id', fam.id)
-        .select()
+        .insert({ name: newFamilyName.trim(), invite_code: code })
+        .select('id,name,invite_code')
         .maybeSingle()
-      if (res.error) throw res.error
-      setFam({ ...fam, invite_code: res.data?.invite_code ?? code })
-      notify('success', 'Invite code updated')
-    } catch {
-      notify('error', 'Could not regenerate the code')
-    } finally { setBusy(false) }
+      if(error) throw error
+      if(!fam?.id) throw new Error('Could not create family')
+
+      const up = await supabase.from('profiles').update({ family_id: fam.id }).eq('id', userId)
+      if(up.error) throw up.error
+
+      const ins = await supabase.from('family_members').insert({
+        family_id: fam.id, user_id: userId, role:'owner', can_manage_members: true
+      })
+      if(ins.error) throw ins.error
+
+      toast('success','Family created')
+      setNewFamilyName('')
+      await load()
+    }catch(e:any){
+      toast('error', e?.message || 'Could not create family')
+    }finally{
+      setBusyCreate(false)
+    }
   }
 
-  async function addKid() {
-    if (!fam) return
-    if (!kidName.trim() || !kidDob) { notify('error', 'Enter name and DOB'); return }
-    setBusy(true)
-    try {
+  async function onJoinFamily(){
+    if(!userId){ toast('error','Sign in first'); return }
+    const code = joinCode.trim().toLowerCase()
+    if(!code){ toast('error','Enter the invite code'); return }
+    setBusyJoin(true)
+    try{
+      // use the secured server route (service role)
+      const res = await fetch('/api/family/join', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ code })
+      })
+      const j = await res.json()
+      if(!res.ok) throw new Error(j?.error || 'Join failed')
+      toast('success','Joined family')
+      setJoinCode('')
+      await load()
+    }catch(e:any){
+      toast('error', e?.message || 'Could not join family')
+    }finally{
+      setBusyJoin(false)
+    }
+  }
+
+  async function onAddKid(){
+    if(!familyId){ toast('error','Create or join a family first'); return }
+    if(!kidName.trim()){ toast('error','Enter a child name'); return }
+    setBusyKid(true)
+    try{
       const ins = await supabase
         .from('dependents')
-        .insert({ family_id: fam.id, name: kidName.trim(), dob: kidDob })
-        .select()
+        .insert({ family_id: familyId, name: kidName.trim(), dob: kidDob || null })
+        .select('id,name,dob')
         .maybeSingle()
-      if (ins.error) throw ins.error
-      setKids([...kids, { id: ins.data!.id, name: ins.data!.name, dob: ins.data!.dob }])
+      if(ins.error) throw ins.error
       setKidName(''); setKidDob('')
-      notify('success', 'Child added')
-    } catch {
-      notify('error', 'Could not add child')
-    } finally { setBusy(false) }
+      toast('success','Child added')
+      await load()
+    }catch(e:any){
+      toast('error', e?.message || 'Could not add child')
+    }finally{
+      setBusyKid(false)
+    }
   }
 
-  async function removeKid(id: string) {
-    setBusy(true)
-    try {
-      const del = await supabase.from('dependents').delete().eq('id', id)
-      if (del.error) throw del.error
-      setKids(kids.filter(k => k.id !== id))
-      notify('success', 'Removed')
-    } catch {
-      notify('error', 'Could not remove')
-    } finally { setBusy(false) }
+  if(loading){
+    return <div className="container"><div className="muted">Loading…</div></div>
   }
-
-  async function removeAdult(user_id: string) {
-    if (!fam) return
-    setBusy(true)
-    try {
-      const del = await supabase
-        .from('family_members')
-        .delete()
-        .eq('family_id', fam.id)
-        .eq('user_id', user_id)
-      if (del.error) throw del.error
-      setMembers(members.filter(m => m.user_id !== user_id))
-      notify('success', 'Member removed')
-    } catch {
-      notify('error', 'Could not remove member')
-    } finally { setBusy(false) }
-  }
-
-  // ---- view ---------------------------------------------------------------
-
-  if (!me) {
-    return (
-      <div className="container" style={{ display: 'grid', gap: 16 }}>
-        <h1 className="text-3xl font-extrabold">Family</h1>
-        <div className="muted">You’re not signed in. Sign in from the header.</div>
-      </div>
-    )
-  }
-  if (!fam) {
-    return (
-      <div className="container" style={{ display: 'grid', gap: 16 }}>
-        <h1 className="text-3xl font-extrabold">Family</h1>
-        <div className="muted">No family found yet. Create or join a family from onboarding.</div>
-      </div>
-    )
+  if(needSignIn){
+    return <div className="container"><div className="muted">Please sign in to manage your family.</div></div>
   }
 
   return (
-    <div className="container" style={{ display: 'grid', gap: 16, paddingBottom: 84 }}>
-      <h1 className="text-3xl font-extrabold">Family</h1>
+    <div className="container" style={{ display:'grid', gap:14, paddingBottom:84 }}>
+      <h1 className="text-2xl font-semibold">Family</h1>
 
-      {/* Family name + Add Kids */}
-      <div className="flex items-center justify-between">
-        <div className="text-2xl font-extrabold">
-          Family: <span className="font-extrabold">{fam.name || '—'}</span>
-        </div>
-        <button className="button" onClick={scrollToAdd}>Add Kids</button>
-      </div>
+      {/* No family yet → show Create / Join panels */}
+      {!familyId && (
+        <>
+          <section className="card" style={{ display:'grid', gap:12 }}>
+            <h2 className="text-xl font-medium">Start a family</h2>
+            <input
+              className="pill-input"
+              placeholder="Family name (e.g., Phooli Homies)"
+              value={newFamilyName}
+              onChange={e=>setNewFamilyName(e.target.value)}
+            />
+            <div className="actions">
+              <button className="button" disabled={busyCreate} onClick={onCreateFamily}>
+                {busyCreate ? 'Creating…' : 'Create family'}
+              </button>
+            </div>
+          </section>
 
-      {/* Invite code row */}
-      <div className="flex items-center justify-between">
-        <div className="text-lg">
-          <span className="font-semibold">Invite Code</span>&nbsp;
-          <span className="font-mono tracking-wider">{fam.invite_code || '—'}</span>
-        </div>
-        <button className="button-outline" onClick={regenerateCode}>Regenerate</button>
-      </div>
+          <section className="card" style={{ display:'grid', gap:12 }}>
+            <h2 className="text-xl font-medium">Join with an invite code</h2>
+            <input
+              className="pill-input"
+              placeholder="Invite code (e.g. pqg5a5)"
+              value={joinCode}
+              onChange={e=>setJoinCode(e.target.value)}
+              autoCapitalize="off"
+              autoCorrect="off"
+            />
+            <div className="actions">
+              <button className="button-outline" disabled={busyJoin} onClick={onJoinFamily}>
+                {busyJoin ? 'Joining…' : 'Join family'}
+              </button>
+            </div>
+          </section>
+        </>
+      )}
 
-      {/* Members card */}
-      <section className="card" style={{ display: 'grid', gap: 8 }}>
-        <div className="text-xl font-extrabold">Members</div>
-
-        <ul className="grid">
-          {members.map((m, idx) => (
-            <li key={m.user_id} className="fam-row">
-              <div className="fam-left">
-                <span className="idx">{idx + 1}.</span>
-                <span className="name">{m.name || 'Member'}</span>
-                {m.role === 'owner' && <span className="meta">owner</span>}
-                {m.you && <span className="meta">you</span>}
+      {/* Family summary */}
+      {familyId && (
+        <>
+          <section className="card" style={{ display:'grid', gap:10 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
+              <div>
+                <div className="lbl">Family</div>
+                <div style={{ fontWeight:800, fontSize:18 }}>{familyName || '—'}</div>
               </div>
-              <button className="button-outline slim" onClick={() => removeAdult(m.user_id)}>Remove</button>
-            </li>
-          ))}
+              <div style={{ textAlign:'right' }}>
+                <div className="lbl">Invite code</div>
+                <code>{inviteCode || '—'}</code>
+              </div>
+            </div>
+          </section>
 
-          {kids.map((k, j) => {
-            const n = members.length + j + 1
-            return (
-              <li key={k.id} className="fam-row">
-                <div className="fam-left">
-                  <span className="idx">{n}.</span>
-                  <span className="name">{k.name}</span>
-                  <span className="meta">child</span>
-                  {k.dob && <span className="meta">DOB {new Date(k.dob).toLocaleDateString()}</span>}
-                </div>
-                <button className="button-outline slim" onClick={() => removeKid(k.id)}>Remove</button>
-              </li>
-            )
-          })}
-        </ul>
-      </section>
+          <section className="card" style={{ display:'grid', gap:10 }}>
+            <h2 className="text-xl font-medium">Members</h2>
+            {members.length === 0 && (
+              <div className="muted">No members yet.</div>
+            )}
+            {members.length > 0 && (
+              <ul className="grid" style={{ gap:10 }}>
+                {members.map(m=>(
+                  <li key={m.user_id} className="ev-row" style={{ gridTemplateColumns:'1fr auto' }}>
+                    <div className="ev-title" style={{ fontSize:18 }}>
+                      {m.name} {m.isYou ? <span className="muted">· you</span> : null}
+                    </div>
+                    <div className="ev-time" style={{ alignSelf:'center' }}>
+                      <span className="muted">{m.role === 'owner' ? 'owner' : 'member'}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
-      {/* Add kid form */}
-      <section ref={addBoxRef} className="card" style={{ display: 'grid', gap: 10 }}>
-        <div className="text-lg font-extrabold">Add Items</div>
-        <input
-          className="line-input"
-          placeholder="Name"
-          value={kidName}
-          onChange={e => setKidName(e.target.value)}
-        />
-        <input
-          className="line-input"
-          placeholder="Dob"
-          type="date"
-          value={kidDob}
-          onChange={e => setKidDob(e.target.value)}
-        />
-        <div className="flex justify-end">
-          <button className="button" onClick={addKid}>Add</button>
-        </div>
-      </section>
+          <section className="card" style={{ display:'grid', gap:10 }}>
+            <h2 className="text-xl font-medium">Children (no email)</h2>
+            <div style={{ display:'flex', gap:8 }}>
+              <input className="pill-input" placeholder="Child name" value={kidName} onChange={e=>setKidName(e.target.value)} />
+              <input className="pill-input" type="date" value={kidDob} onChange={e=>setKidDob(e.target.value)} />
+              <button className="button-outline" disabled={busyKid} onClick={onAddKid}>
+                {busyKid ? 'Adding…' : 'Add'}
+              </button>
+            </div>
 
-      {busy && <div className="muted">Working…</div>}
+            {kids.length > 0 && (
+              <ul className="grid" style={{ gap:8 }}>
+                {kids.map(k=>(
+                  <li key={k.id}>• {k.name} {k.dob ? <span className="muted">— {k.dob}</span> : null}</li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </>
+      )}
     </div>
   )
 }
