@@ -153,36 +153,36 @@ export default function FamilyPage(){
   }
 
   async function onJoinFamily(){
-    setJoinErr('')
-    if(!userId){ setJoinErr('Please sign in first'); return }
-    const code = joinCode.trim().toLowerCase()
-    if(!code){ setJoinErr('Enter the invite code'); return }
-    setBusyJoin(true)
-    try{
-      const res = await fetch('/api/family/join', {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ code }),
-        credentials: 'include' // make sure cookies go with the request
-      })
-      const j = await res.json().catch(()=> ({}))
-      if(!res.ok){
-        const msg = j?.error || `Join failed (${res.status})`
-        setJoinErr(msg)
-        toast('error', msg)
-        return
-      }
-      toast('success','Joined family')
-      setJoinCode('')
-      await load()
-    }catch(e:any){
-      const msg = e?.message || 'Network error while joining'
+  setJoinErr('')
+  if(!userId){ setJoinErr('Please sign in first'); return }
+  const code = joinCode.trim().toLowerCase()
+  if(!code){ setJoinErr('Enter the invite code'); return }
+  setBusyJoin(true)
+  try{
+    const res = await fetch('/api/family/join', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ code }),
+      credentials: 'include', // ← THIS is Step 4
+    })
+    const j = await res.json().catch(()=> ({}))
+    if(!res.ok){
+      const msg = j?.error || `Join failed (${res.status})`
       setJoinErr(msg)
-      toast('error', msg)
-    }finally{
-      setBusyJoin(false)
+      ;(window as any)?.toast?.('error', msg)
+      return
     }
+    ;(window as any)?.toast?.('success','Joined family')
+    setJoinCode('')
+    await load()
+  }catch(e:any){
+    const msg = e?.message || 'Network error while joining'
+    setJoinErr(msg)
+    ;(window as any)?.toast?.('error', msg)
+  }finally{
+    setBusyJoin(false)
   }
+}
 
   async function onAddKid(){
     if(!familyId){ toast('error','Create or join a family first'); return }
