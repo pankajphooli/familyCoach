@@ -8,6 +8,7 @@ import styles from './home/home-ui.module.css'
 type Profile = {
   id?: string
   full_name?: string | null
+  family_id?: string | null
   goal_weight_kg?: number | string | null
   target_weight_kg?: number | string | null
   goal_weight?: number | string | null
@@ -241,45 +242,56 @@ export default function HomePage() {
     if (g.length) setGrocery(g as GroceryItem[])
   }
 
-  async function robustGroceryLoad(uid: string) {
-    // Try grocery_items with done=false
-    let r = await supabase.from('grocery_items')
-      .select('id,name,quantity,unit,done')
-      .eq('user_id', uid)
-      .eq('done', false)
-      .order('name')
-
-    if (r.error) {
-      // Table might not exist → try shopping_items
-      const s = await supabase.from('shopping_items')
-        .select('id,name,quantity,unit,done')
-        .eq('user_id', uid)
-        .eq('done', false)
-        .order('name')
-      if (!s.error && s.data) { setGrocery(s.data as GroceryItem[]); return }
+  /* Load grocery like the Grocery page: user-owned → family-owned → schema variants → fallbacks */
+  async function robustGroceryLoad(uid: string, familyId?: string | null) {
+    // Helper to run a query safely
+    const run = async (table: string, filters: { [k: string]: any } = {}, orderByName = true) => {
+      let q: any = supabase.from(table).select('id,name,quantity,unit,done')
+      Object.entries(filters).forEach(([k, v]) => q = v === null ? q.is(k, null) : q.eq(k, v))
+      if (orderByName) q = q.order('name')
+      const r = await q
+      return r.error ? [] : (r.data || [])
     }
 
-    // If 0 rows (maybe no done flag used), try done IS NULL
-    if (!r.error && (r.data || []).length === 0) {
-      const r2 = await supabase.from('grocery_items')
-        .select('id,name,quantity,unit,done')
-        .eq('user_id', uid)
-        .is('done', null)
-        .order('name')
-      if (!r2.error && r2.data && r2.data.length) { setGrocery(r2.data as GroceryItem[]); return }
+    // 1) user-owned, done=false
+    let rows = await run('grocery_items', { user_id: uid, done: false })
+    if (rows.length) return setGrocery(rows)
+
+    // 1b) user-owned, done IS NULL (schemas without done flag set)
+    rows = await run('grocery_items', { user_id: uid, done: null })
+    if (rows.length) return setGrocery(rows)
+
+    // 1c) user-owned, no done filter
+    rows = await run('grocery_items', { user_id: uid })
+    if (rows.length) return setGrocery(rows)
+
+    // 2) family-owned, done=false (if we know family_id)
+    if (familyId) {
+      rows = await run('grocery_items', { family_id: familyId, done: false })
+      if (rows.length) return setGrocery(rows)
+
+      // 2b) family-owned, done IS NULL
+      rows = await run('grocery_items', { family_id: familyId, done: null })
+      if (rows.length) return setGrocery(rows)
+
+      // 2c) family-owned, no done filter
+      rows = await run('grocery_items', { family_id: familyId })
+      if (rows.length) return setGrocery(rows)
     }
 
-    // Finally, try without any done filter
-    if ((!r.error && (r.data || []).length === 0) || r.error) {
-      const r3 = await supabase.from('grocery_items')
-        .select('id,name,quantity,unit,done')
-        .eq('user_id', uid)
-        .order('name')
-      if (!r3.error && r3.data) { setGrocery(r3.data as GroceryItem[]); return }
-    }
+    // 3) alt table name used historically
+    rows = await run('shopping_items', { user_id: uid, done: false }).catch?.(()=>[])
+    if (rows.length) return setGrocery(rows as any)
 
-    // Default
-    setGrocery(((r.data || []) as GroceryItem[]))
+    // 3b) shopping_items fallbacks
+    rows = await run('shopping_items', { user_id: uid, done: null }).catch?.(()=>[])
+    if (rows.length) return setGrocery(rows as any)
+
+    rows = await run('shopping_items', { user_id: uid }).catch?.(()=>[])
+    if (rows.length) return setGrocery(rows as any)
+
+    // Default empty
+    setGrocery([])
   }
 
   async function loadAll(uid: string) {
@@ -310,7 +322,7 @@ export default function HomePage() {
           evRes,
         ] = await Promise.all([
           supabase.from('profiles').select(
-            'full_name, goal_weight_kg, target_weight_kg, goal_weight, target_weight, goal_date, target_date, goal_target_date, current_weight_kg, weight_kg, last_weight_kg, current_weight'
+            'id, family_id, full_name, goal_weight_kg, target_weight_kg, goal_weight, target_weight, goal_date, target_date, goal_target_date, current_weight_kg, weight_kg, last_weight_kg, current_weight'
           ).eq('id', uid).maybeSingle(),
           supabase.from('weights').select('kg').eq('user_id', uid).order('date', { ascending: false }).limit(1).maybeSingle(),
           supabase.from('plan_days').select('id,date').eq('user_id', uid).in('date', weekDates),
@@ -373,7 +385,8 @@ export default function HomePage() {
       }
 
       // Grocery snapshot (independent robust loader so it always shows)
-      await robustGroceryLoad(uid)
+      const famId = (profile?.family_id ?? null) as string | null
+      await robustGroceryLoad(uid, famId)
     } catch (e) {
       console.warn('home load error', e)
       toast('error', 'Failed to load dashboard')
@@ -538,7 +551,7 @@ export default function HomePage() {
         }
       </section>
 
-      {/* Grocery snapshot — robust fallback so it shows */}
+      {/* Grocery snapshot — robust loader so it shows even with schema differences */}
       <section className="panel">
         <div className={styles.sectionTitle}>Your Grocery list</div>
         {(busy && userId)
