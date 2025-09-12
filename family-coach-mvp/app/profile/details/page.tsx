@@ -37,7 +37,7 @@ export default function ProfileDetailsPage(){
 
   return (
     <div className="container" style={{paddingBottom:80, display:'grid', gap:16}}>
-      <h1 className="text-2xl font-semibold">{profile.full_name}</h1>
+      <h1 className="text-2xl font-semibold">Your Details</h1>
 
       {loading ? (
         <div className="panel">Loading…</div>
