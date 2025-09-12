@@ -257,7 +257,7 @@ export default function HomePage() {
     let rows = await run('grocery_items', { user_id: uid, done: false })
     if (rows.length) return setGrocery(rows)
 
-    // 1b) user-owned, done IS NULL (schemas without done flag set)
+    // 1b) user-owned, done IS NULL
     rows = await run('grocery_items', { user_id: uid, done: null })
     if (rows.length) return setGrocery(rows)
 
@@ -280,15 +280,16 @@ export default function HomePage() {
     }
 
     // 3) alt table name used historically
-    rows = await run('shopping_items', { user_id: uid, done: false }).catch?.(()=>[])
-    if (rows.length) return setGrocery(rows as any)
+    try {
+      rows = await run('shopping_items', { user_id: uid, done: false })
+      if (rows.length) return setGrocery(rows as any)
 
-    // 3b) shopping_items fallbacks
-    rows = await run('shopping_items', { user_id: uid, done: null }).catch?.(()=>[])
-    if (rows.length) return setGrocery(rows as any)
+      rows = await run('shopping_items', { user_id: uid, done: null })
+      if (rows.length) return setGrocery(rows as any)
 
-    rows = await run('shopping_items', { user_id: uid }).catch?.(()=>[])
-    if (rows.length) return setGrocery(rows as any)
+      rows = await run('shopping_items', { user_id: uid })
+      if (rows.length) return setGrocery(rows as any)
+    } catch {}
 
     // Default empty
     setGrocery([])
@@ -311,6 +312,11 @@ export default function HomePage() {
       if (!rpc.error && rpc.data) {
         try { sessionStorage.setItem(cacheKey, JSON.stringify(rpc.data)) } catch {}
         applyBundleLike(rpc.data, uid)
+
+        // <<< NEW: fetch family_id explicitly for grocery snapshot >>>
+        const fam = await supabase.from('profiles').select('family_id').eq('id', uid).maybeSingle()
+        const famId: string | null = (fam.data as any)?.family_id ?? null
+        await robustGroceryLoad(uid, famId)
       } else {
         // Fallback: parallel direct reads
         const evTable = await detectEventsTable()
@@ -382,11 +388,10 @@ export default function HomePage() {
         weekDates.forEach(d => (byBlocks[d] = []))
         for (const wd of wds) byBlocks[wd.date] = blocks.filter(b => b.workout_day_id === wd.id)
         setBlocksByDate(byBlocks)
-      }
 
-      // Grocery snapshot (independent robust loader so it always shows)
-      const famId = (profile?.family_id ?? null) as string | null
-      await robustGroceryLoad(uid, famId)
+        // <<< FIX: pass the freshly fetched family_id (NOT state) >>>
+        await robustGroceryLoad(uid, prof?.family_id ?? null)
+      }
     } catch (e) {
       console.warn('home load error', e)
       toast('error', 'Failed to load dashboard')
@@ -437,7 +442,10 @@ export default function HomePage() {
       const r = await supabase.from('weights').insert({ user_id: userId, date: todayStr, kg })
       if (r.error) { toast('error', 'Could not save weight'); return }
       setLatestWeight(kg)
-      recomputeDelta(kg, goalKg)
+      if (goalKg != null) {
+        const diff = +(kg - goalKg).toFixed(1)
+        setKgDeltaText(`${Math.abs(diff)} Kg ${diff > 0 ? 'above' : diff < 0 ? 'below' : 'at'} goal`)
+      }
       setLogKg('')
       toast('success', 'Weight logged')
     } catch {
@@ -461,6 +469,7 @@ export default function HomePage() {
         <div className={styles.goalRow}><div>Your Goal</div><div className={styles.goalVal}>{goalKg != null ? `${goalKg} Kg` : '—'}</div></div>
         <div className={styles.goalRow}><div>Target Date</div><div className={styles.goalVal}>{targetDate || '—'}</div></div>
         <div className={styles.goalRow}><div>Days to go</div><div className={styles.goalVal}>{daysToGo ?? '—'}</div></div>
+        <div className={styles.goalDiff}>{ /* derived delta */ }</div>
         <div className={styles.goalDiff}>{kgDeltaText}</div>
       </section>
 
@@ -551,7 +560,7 @@ export default function HomePage() {
         }
       </section>
 
-      {/* Grocery snapshot — robust loader so it shows even with schema differences */}
+      {/* Grocery snapshot — now correctly uses fresh family_id */}
       <section className="panel">
         <div className={styles.sectionTitle}>Your Grocery list</div>
         {(busy && userId)
