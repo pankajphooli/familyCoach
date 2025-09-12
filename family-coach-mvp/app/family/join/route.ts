@@ -1,62 +1,67 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { createAdminClient } from '../../lib/supabaseAdmin'
+import { createAdminClient } from '../../lib/supabaseAdmin'  // make sure this file exists (see step 2 below)
 
-// Force this to run on the server every time (no static caching)
 export const dynamic = 'force-dynamic'
+
+/**
+ * Safely extract the user's JWT from the Supabase auth cookie without extra packages.
+ * Supabase stores a cookie named: sb-<project-ref>-auth-token
+ * The value is a JSON string that includes currentSession.access_token
+ */
+function getAccessTokenFromCookie(): string | null {
+  try {
+    const all = cookies().getAll()
+    const authCookie = all.find(c => c.name.endsWith('-auth-token') && c.name.startsWith('sb-'))
+    if (!authCookie?.value) return null
+    const parsed = JSON.parse(authCookie.value)
+    // Supabase stores the token at parsed.currentSession.access_token
+    const token = parsed?.currentSession?.access_token || parsed?.access_token
+    return typeof token === 'string' ? token : null
+  } catch {
+    return null
+  }
+}
 
 export async function POST(req: Request) {
   try {
     const { code } = (await req.json()) as { code?: string }
     const invite = (code || '').trim().toLowerCase()
-    if (!invite) {
-      return NextResponse.json({ error: 'Missing code' }, { status: 400 })
-    }
+    if (!invite) return NextResponse.json({ error: 'Missing code' }, { status: 400 })
 
-    // 1) Get the current signed-in user from Supabase cookies
-    const supabase = createRouteHandlerClient({ cookies })
-    const {
-      data: { user },
-      error: userErr,
-    } = await supabase.auth.getUser()
+    // 1) Get the user from the auth cookie (no auth-helpers needed)
+    const jwt = getAccessTokenFromCookie()
+    if (!jwt) return NextResponse.json({ error: 'Not signed in (no Supabase auth cookie)' }, { status: 401 })
 
-    if (userErr) {
-      return NextResponse.json({ error: `Auth error: ${userErr.message}` }, { status: 401 })
-    }
-    if (!user) {
-      return NextResponse.json({ error: 'Not signed in (no Supabase session cookie found)' }, { status: 401 })
-    }
-
-    // 2) Use service-role admin to bypass RLS for lookup + linking
     const admin = createAdminClient()
 
-    // Find family by invite code (case-insensitive)
+    // Verify token → get user
+    const { data: userData, error: userErr } = await admin.auth.getUser(jwt)
+    if (userErr || !userData?.user?.id) {
+      return NextResponse.json({ error: 'Invalid session token' }, { status: 401 })
+    }
+    const userId = userData.user.id
+
+    // 2) Lookup family by invite code (case-insensitive) with service role
     const { data: fam, error: famErr } = await admin
       .from('families')
       .select('id,name,invite_code')
       .ilike('invite_code', invite)
       .maybeSingle()
 
-    if (famErr) {
-      return NextResponse.json({ error: `Lookup failed: ${famErr.message}` }, { status: 400 })
-    }
-    if (!fam?.id) {
-      return NextResponse.json({ error: 'Invalid code' }, { status: 404 })
-    }
+    if (famErr) return NextResponse.json({ error: `Lookup failed: ${famErr.message}` }, { status: 400 })
+    if (!fam?.id) return NextResponse.json({ error: 'Invalid code' }, { status: 404 })
 
-    // 3) Attach the user to the family
-    const up = await admin.from('profiles').update({ family_id: fam.id }).eq('id', user.id)
-    if (up.error) {
-      return NextResponse.json({ error: `Link failed: ${up.error.message}` }, { status: 400 })
-    }
+    // 3) Attach user to family
+    const up = await admin.from('profiles').update({ family_id: fam.id }).eq('id', userId)
+    if (up.error) return NextResponse.json({ error: `Link failed: ${up.error.message}` }, { status: 400 })
 
-    // 4) Insert membership (ignore duplicate)
+    // 4) Ensure membership (ignore duplicate)
     const ins = await admin.from('family_members').insert({
       family_id: fam.id,
-      user_id: user.id,
+      user_id: userId,
       role: 'member',
-      can_manage_members: false,
+      can_manage_members: false
     })
     if (ins.error) {
       const msg = String(ins.error.message || '').toLowerCase()
