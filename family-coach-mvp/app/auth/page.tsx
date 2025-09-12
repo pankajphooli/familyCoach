@@ -14,7 +14,7 @@ export default function AuthPage() {
 
 import { useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { createClient } from '../../lib/supabaseclient' // <- keep this path to match your repo
+import { createClient } from '../../lib/supabaseClient' // <- keep this path to match your repo
 
 type Mode = 'signin' | 'signup'
 
