@@ -37,7 +37,7 @@ export default function ProfileDetailsPage(){
 
   return (
     <div className="container" style={{paddingBottom:80, display:'grid', gap:16}}>
-      <h1 className="text-2xl font-semibold">Your details</h1>
+      <h1 className="text-2xl font-semibold">{profile.full_name}</h1>
 
       {loading ? (
         <div className="panel">Loading…</div>
@@ -65,8 +65,8 @@ export default function ProfileDetailsPage(){
           <Row label="Available equipment" value={arrish(profile.equipment)} />
 
           <div className="flex" style={{gap:10, marginTop:6}}>
-            <Link className="button" href="/onboarding">Edit in onboarding</Link>
-            <Link className="button-outline" href="/profile">Back to Profile</Link>
+            <Link className="button" href="/onboarding">Edit</Link>
+            <Link className="button-outline" href="/profile" style={{marginLeft:6}}>Back</Link>
           </div>
         </div>
       )}
