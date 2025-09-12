@@ -117,3 +117,27 @@
 
 /* Bottom nav bullets safety (icons only) */
 .bottom-nav, .bottom-nav ul, .bottom-nav li{ list-style: none; margin: 0; padding: 0; }
+
+/* layout for the two-line meal row */
+.mealrow{ padding:12px 0; border-bottom:1px solid var(--card-border); }
+.mealrow:last-child{ border-bottom:none; }
+.mr-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.mr-left{ font-weight:800; font-size:16px; }
+.mr-right{ opacity:.85; font-weight:600; }
+.mr-second{ margin-top:6px; }
+.mr-title{ font-size:16px; font-weight:600; margin-bottom:8px; }
+
+/* pill buttons (matching the screenshot) */
+.chipbtn{
+  display:inline-block;
+  padding:8px 14px;
+  border:1.5px solid #1a1a1a;
+  border-radius:999px;
+  background:#fff;
+  color:#111;
+  font-weight:800;
+  font-size:14px;
+  line-height:1;
+}
+.dark .chipbtn{ background:transparent; color:#fff; border-color:#fff; }
+.mr-actions{ display:flex; gap:10px; flex-wrap:wrap; }
