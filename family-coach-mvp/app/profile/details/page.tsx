@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { createClient } from '../../lib/supabaseClient'
+import { createClient } from '../../../lib/supabaseClient'
 
 type Profile = {
   full_name?: string | null
