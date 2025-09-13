@@ -8,10 +8,13 @@ import './onboarding-ui.css'
 type Profile = {
   full_name?: string | null
   sex?: string | null
+  dob?: string | null
   height_cm?: number | null
+  current_weight?: number | null
   goal_weight?: number | null
-  current_weight?: number | null 
   goal_target_date?: string | null
+  goal_date?: string | null                // legacy fallback
+  activity_level?: string | null
   dietary_pattern?: string | null
   meat_policy?: string | null
   allergies?: string[] | null
@@ -19,9 +22,8 @@ type Profile = {
   cuisine_prefs?: string[] | null
   injuries?: string[] | null
   health_conditions?: string[] | null
+  conditions?: string[] | null            // legacy fallback
   equipment?: string[] | null
-  dob?: string | null
-  activity_level?: string | null
 }
 
 const DIET_CHOICES = [
@@ -69,7 +71,7 @@ export default function OnboardingPage() {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [msg, setMsg] = useState<{ kind: 'error' | 'success', text: string } | null>(null)
+  const [msg, setMsg] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
 
   // personal
   const [fullName, setFullName] = useState('')
@@ -79,7 +81,7 @@ export default function OnboardingPage() {
   const [currentWeight, setCurrentWeight] = useState('')     // kg
   const [goalWeight, setGoalWeight] = useState('')           // kg
   const [goalDate, setGoalDate] = useState('')               // yyyy-mm-dd
-  const [activity, setActivity] = useState('light')          // NEW
+  const [activity, setActivity] = useState('light')
 
   // diet & exercise
   const [diet, setDiet] = useState('veg')
@@ -138,63 +140,65 @@ export default function OnboardingPage() {
     )
   }
 
-  // Prefill
-useEffect(()=>{ (async()=>{
-  setLoading(true); setMsg(null)
-  try{
-    const { data:{ user } } = await supabase.auth.getUser()
-    if(!user){ setMsg({ kind:'error', text:'Please sign in to continue.' }); setLoading(false); return }
+  // Prefill (with legacy fallbacks and weights fallback)
+  useEffect(()=>{ (async()=>{
+    setLoading(true); setMsg(null)
+    try{
+      const { data:{ user } } = await supabase.auth.getUser()
+      if(!user){ setMsg({ kind:'error', text:'Please sign in to continue.' }); setLoading(false); return }
 
-    const sel =
-      'full_name, sex, dob, height_cm, current_weight, goal_weight, goal_target_date, activity_level, '+
-      'dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
-    const prof = await supabase.from('profiles').select(sel).eq('id', user.id).maybeSingle()
-    const p = (prof.data || {}) as Profile
+      const sel =
+        'full_name, sex, dob, height_cm, current_weight, goal_weight, goal_target_date, goal_date, activity_level, '+
+        'dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, conditions, equipment'
+      const prof = await supabase.from('profiles').select(sel).eq('id', user.id).maybeSingle()
+      const p = (prof.data || {}) as Profile
 
-    if(p.full_name) setFullName(p.full_name)
-    if(p.sex) setSex(p.sex)
-    if(p.dob) setDob(p.dob.substring(0,10))
-    if(p.height_cm!=null) setHeight(String(p.height_cm))
+      if(p.full_name) setFullName(p.full_name)
+      if(p.sex) setSex(p.sex)
+      if(p.dob) setDob(p.dob.substring(0,10))
+      if(p.height_cm!=null) setHeight(String(p.height_cm))
 
-    // these three:
-    if(p.goal_weight!=null) setGoalWeight(String(p.goal_weight))
-    if(p.goal_target_date) setGoalDate(p.goal_target_date.substring(0,10))
+      // three key fields
+      if(p.goal_weight!=null) setGoalWeight(String(p.goal_weight))
+      const tgt = p.goal_target_date || p.goal_date || ''
+      if(tgt) setGoalDate(tgt.substring(0,10))
 
-    // current weight: prefer profile.current_weight, fallback to latest weights
-    if(p.current_weight != null){
-      setCurrentWeight(String(p.current_weight))
-    }else{
-      const w = await supabase
-        .from('weights')
-        .select('date, coalesce(weight_kg, weight) as weight_kg')
-        .eq('user_id', user.id)
-        .order('date', { ascending:false })
-        .limit(1)
-        .maybeSingle()
-      if((w.data as any)?.weight_kg != null) setCurrentWeight(String((w.data as any).weight_kg))
-    }
+      // current weight: prefer profile.current_weight, fallback to latest weights log
+      if(p.current_weight != null){
+        setCurrentWeight(String(p.current_weight))
+      }else{
+        const w = await supabase
+          .from('weights')
+          .select('date, coalesce(weight_kg, weight) as weight_val')
+          .eq('user_id', user.id)
+          .order('date', { ascending:false })
+          .limit(1)
+          .maybeSingle()
+        const wv = (w.data as any)?.weight_val
+        if(wv != null) setCurrentWeight(String(wv))
+      }
 
-    if(p.activity_level) setActivity(p.activity_level)
+      if(p.activity_level) setActivity(p.activity_level)
 
-    if(p.dietary_pattern) setDiet(p.dietary_pattern)
-    else if(p.meat_policy) setDiet(p.meat_policy)
+      if(p.dietary_pattern) setDiet(p.dietary_pattern)
+      else if(p.meat_policy) setDiet(p.meat_policy)
 
-    setAllergies(p.allergies || [])
-    setDislikes(p.dislikes || [])
-    setCuisines(p.cuisine_prefs || [])
-    setInjuries(p.injuries || [])
-    setConditions(p.health_conditions || [])
-    setEquipment(p.equipment || [])
-  }catch(e){
-    console.warn(e); setMsg({ kind:'error', text:'Could not load your details.' })
-  }finally{ setLoading(false) }
-})() }, [supabase])
+      setAllergies(p.allergies || [])
+      setDislikes(p.dislikes || [])
+      setCuisines(p.cuisine_prefs || [])
+      setInjuries(p.injuries || [])
+      setConditions(p.health_conditions ?? p.conditions ?? [])
+      setEquipment(p.equipment || [])
+    }catch(e){
+      console.warn(e); setMsg({ kind:'error', text:'Could not load your details.' })
+    }finally{ setLoading(false) }
+  })() }, [supabase])
 
   async function onSave(){
     setSaving(true); setMsg(null)
     try{
       const { data:{ user } } = await supabase.auth.getUser()
-      if(!user){ setMsg({kind:'error', text:'Please sign in first.'}); return }
+      if(!user){ setMsg({ kind:'error', text:'Please sign in first.' }); return }
 
       const payload:any = {
         id: user.id,
@@ -217,21 +221,21 @@ useEffect(()=>{ (async()=>{
       }
 
       const up = await supabase.from('profiles').upsert(payload, { onConflict:'id' }).select('id').maybeSingle()
-      if(up.error){ console.error(up.error); setMsg({kind:'error', text: up.error.message}); return }
+      if(up.error){ console.error(up.error); setMsg({ kind:'error', text: up.error.message }); return }
 
-      // store today's weight as a log too (if user typed one)
+      // also store today's weight in weights log, if provided
       const wt = currentWeight ? Number(currentWeight) : NaN
       if(!Number.isNaN(wt)){
         const today = ymdLocal()
         const ex = await supabase.from('weights').select('id').eq('user_id', user.id).eq('date', today).maybeSingle()
-        if(ex.data?.id){ await supabase.from('weights').update({ weight_kg: wt }).eq('id', ex.data.id) }
-        else { await supabase.from('weights').insert({ user_id: user.id, date: today, weight_kg: wt }) }
+        if(ex.data?.id){ await supabase.from('weights').update({ weight_kg: wt, weight: wt } as any).eq('id', ex.data.id) }
+        else { await supabase.from('weights').insert({ user_id: user.id, date: today, weight_kg: wt, weight: wt } as any) }
       }
 
-      setMsg({kind:'success', text:'Saved your details.'})
+      setMsg({ kind:'success', text:'Saved your details.' })
       router.push('/profile')
     }catch(e:any){
-      console.error(e); setMsg({kind:'error', text:'Something went wrong while saving.'})
+      console.error(e); setMsg({ kind:'error', text:'Something went wrong while saving.' })
     }finally{ setSaving(false) }
   }
 
@@ -323,4 +327,3 @@ useEffect(()=>{ (async()=>{
     </div>
   )
 }
-
