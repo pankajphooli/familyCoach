@@ -10,6 +10,7 @@ type Profile = {
   sex?: string | null
   height_cm?: number | null
   goal_weight?: number | null
+  current_weight?: number | null 
   goal_target_date?: string | null
   dietary_pattern?: string | null
   meat_policy?: string | null
