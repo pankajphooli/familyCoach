@@ -139,52 +139,56 @@ export default function OnboardingPage() {
   }
 
   // Prefill
-  useEffect(()=>{ (async()=>{
-    setLoading(true); setMsg(null)
-    try{
-      const { data:{ user } } = await supabase.auth.getUser()
-      if(!user){ setMsg({kind:'error', text:'Please sign in to continue.'}); return }
+useEffect(()=>{ (async()=>{
+  setLoading(true); setMsg(null)
+  try{
+    const { data:{ user } } = await supabase.auth.getUser()
+    if(!user){ setMsg('Please sign in to continue.'); return }
 
-      const sel =
-        'full_name, sex, dob, height_cm, current_weight, goal_weight, goal_target_date, activity_level, '+
-        'dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
-      const prof = await supabase.from('profiles').select(sel).eq('id', user.id).maybeSingle()
-      const p = (prof.data || {}) as Profile
+    const sel =
+      'full_name, sex, dob, height_cm, current_weight, goal_weight, goal_target_date, activity_level, '+
+      'dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
+    const prof = await supabase.from('profiles').select(sel).eq('id', user.id).maybeSingle()
+    const p = (prof.data || {}) as Profile
 
-      if(p.full_name) setFullName(p.full_name)
-      if(p.sex) setSex(p.sex)
-      if(p.dob) setDob(p.dob.substring(0,10))
-      if(p.height_cm!=null) setHeight(String(p.height_cm))
-      if(p.current_weight!=null) setCurrentWeight(String(p.current_weight))
-      if(p.goal_weight!=null) setGoalWeight(String(p.goal_weight))
-      if(p.goal_target_date) setGoalDate(p.goal_target_date.substring(0,10))
-      if(p.activity_level) setActivity(p.activity_level)
+    if(p.full_name) setFullName(p.full_name)
+    if(p.sex) setSex(p.sex)
+    if(p.dob) setDob(p.dob.substring(0,10))
+    if(p.height_cm!=null) setHeight(String(p.height_cm))
 
-      if(p.dietary_pattern) setDiet(p.dietary_pattern)
-      else if(p.meat_policy) setDiet(p.meat_policy)
+    // these three:
+    if(p.goal_weight!=null) setGoalWeight(String(p.goal_weight))
+    if(p.goal_target_date) setGoalDate(p.goal_target_date.substring(0,10))
 
-      setAllergies(p.allergies || [])
-      setDislikes(p.dislikes || [])
-      setCuisines(p.cuisine_prefs || [])
-      setInjuries(p.injuries || [])
-      setConditions(p.health_conditions || [])
-      setEquipment(p.equipment || [])
+    // current weight: prefer profile.current_weight, fallback to latest weights
+    if(p.current_weight != null){
+      setCurrentWeight(String(p.current_weight))
+    }else{
+      const w = await supabase
+        .from('weights')
+        .select('date, coalesce(weight_kg, weight) as weight_kg')
+        .eq('user_id', user.id)
+        .order('date', { ascending:false })
+        .limit(1)
+        .maybeSingle()
+      if((w.data as any)?.weight_kg != null) setCurrentWeight(String((w.data as any).weight_kg))
+    }
 
-      // latest weight as fallback for currentWeight
-      if(!p.current_weight){
-        const w = await supabase
-          .from('weights')
-          .select('date, weight_kg')
-          .eq('user_id', user.id)
-          .order('date', { ascending:false })
-          .limit(1)
-          .maybeSingle()
-        if(w.data?.weight_kg!=null) setCurrentWeight(String(w.data.weight_kg))
-      }
-    }catch(e){
-      console.warn(e); setMsg({kind:'error', text:'Could not load your details.'})
-    }finally{ setLoading(false) }
-  })() }, [supabase])
+    if(p.activity_level) setActivity(p.activity_level)
+
+    if(p.dietary_pattern) setDiet(p.dietary_pattern)
+    else if(p.meat_policy) setDiet(p.meat_policy)
+
+    setAllergies(p.allergies || [])
+    setDislikes(p.dislikes || [])
+    setCuisines(p.cuisine_prefs || [])
+    setInjuries(p.injuries || [])
+    setConditions(p.health_conditions || [])
+    setEquipment(p.equipment || [])
+  }catch(e){
+    console.warn(e); setMsg('Could not load your details.')
+  }finally{ setLoading(false) }
+})() }, [supabase])
 
   async function onSave(){
     setSaving(true); setMsg(null)
