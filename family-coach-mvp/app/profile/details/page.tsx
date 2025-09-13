@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '../../../lib/supabaseClient'
+import { createClient } from '../../lib/supabaseClient'
 
 type Profile = {
   full_name?: string | null
@@ -12,6 +12,7 @@ type Profile = {
   current_weight?: number | null
   goal_weight?: number | null
   goal_target_date?: string | null
+  goal_date?: string | null               // legacy fallback
   activity_level?: string | null
   dietary_pattern?: string | null
   allergies?: string[] | null
@@ -19,6 +20,7 @@ type Profile = {
   cuisine_prefs?: string[] | null
   injuries?: string[] | null
   health_conditions?: string[] | null
+  conditions?: string[] | null            // legacy fallback
   equipment?: string[] | null
 }
 
@@ -30,7 +32,6 @@ export default function ProfilePage(){
   const [msg, setMsg] = useState<string>('Loading…')
   const [loading, setLoading] = useState<boolean>(true)
 
-  // Safe formatters (avoid mobile crashes on invalid dates/values)
   const fmtDate = (d?:string|null) => {
     if(!d) return '—'
     const t = Date.parse(d)
@@ -47,27 +48,39 @@ export default function ProfilePage(){
       if(auErr) { setMsg(auErr.message); setLoading(false); return }
       if(!user){ setMsg('Please sign in.'); setLoading(false); return }
 
-        const sel =
-        'full_name, sex, dob, height_cm, current_weight, goal_weight, goal_target_date, activity_level, '+
-        'dietary_pattern, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
+      const sel =
+        'full_name, sex, dob, height_cm, current_weight, goal_weight, goal_target_date, goal_date, activity_level, '+
+        'dietary_pattern, allergies, dislikes, cuisine_prefs, injuries, health_conditions, conditions, equipment'
       const res = await supabase.from('profiles').select(sel).eq('id', user.id).maybeSingle()
       if(res.error){ setMsg(res.error.message); setLoading(false); return }
-      
+
       let prof = (res.data || {}) as Profile
-      
-      // Fallback if current_weight is null
+
+      // Fallback if current_weight is null: use latest weights log
       if(prof.current_weight == null){
         const w = await supabase
           .from('weights')
-          .select('coalesce(weight_kg, weight) as weight_kg, date')
+          .select('coalesce(weight_kg, weight) as weight_val, date')
           .eq('user_id', user.id)
           .order('date', { ascending:false })
           .limit(1)
           .maybeSingle()
-        if((w.data as any)?.weight_kg != null){
-          prof = { ...prof, current_weight: Number((w.data as any).weight_kg) }
+        const wv = (w.data as any)?.weight_val
+        if(wv != null){
+          prof = { ...prof, current_weight: Number(wv) }
         }
       }
+
+      // Health conditions: prefer new column, fall back to legacy
+      if(!prof.health_conditions && prof.conditions){
+        prof = { ...prof, health_conditions: prof.conditions }
+      }
+
+      // Target date: prefer new column, fall back to legacy
+      if(!prof.goal_target_date && prof.goal_date){
+        prof = { ...prof, goal_target_date: prof.goal_date }
+      }
+
       setP(prof)
       setMsg('')
     }catch(e:any){
@@ -90,10 +103,8 @@ export default function ProfilePage(){
 
   return (
     <div className="container" style={{display:'grid', gap:16}}>
-      {/* Header bar with Back + Edit */}
       <div className="flex items-center justify-between" style={{marginTop:4}}>
         <button className="icon-button" onClick={onBack} aria-label="Back">
-          {/* chevron-left */}
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M15 18l-6-6 6-6"/>
           </svg>
@@ -112,9 +123,10 @@ export default function ProfilePage(){
             <div><b>Sex:</b> {p.sex || '—'}</div>
             <div><b>Date of birth:</b> {fmtDate(p.dob)}</div>
             <div><b>Height:</b> {p.height_cm != null ? `${p.height_cm} cm` : '—'}</div>
+
             <div><b>Current weight:</b> {p.current_weight != null ? `${p.current_weight} kg` : '—'}</div>
             <div><b>Goal weight:</b> {p.goal_weight != null ? `${p.goal_weight} kg` : '—'}</div>
-            <div><b>Target date:</b> {fmtDate(p.goal_target_date)}</div>
+            <div><b>Target date:</b> {fmtDate(p.goal_target_date || p.goal_date)}</div>
             <div><b>Activity level:</b> {p.activity_level || '—'}</div>
           </section>
 
@@ -127,7 +139,7 @@ export default function ProfilePage(){
 
           <section className="card" style={{display:'grid', gap:8}}>
             <div><b>Injuries:</b> {list(p.injuries)}</div>
-            <div><b>Health conditions:</b> {list(p.health_conditions)}</div>
+            <div><b>Health conditions:</b> {list(p.health_conditions ?? p.conditions)}</div>
             <div><b>Equipment:</b> {list(p.equipment)}</div>
           </section>
         </>
