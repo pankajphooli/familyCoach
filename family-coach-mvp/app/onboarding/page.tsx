@@ -143,7 +143,7 @@ useEffect(()=>{ (async()=>{
   setLoading(true); setMsg(null)
   try{
     const { data:{ user } } = await supabase.auth.getUser()
-    if(!user){ setMsg('Please sign in to continue.'); return }
+    if(!user){ setMsg({ kind:'error', text:'Please sign in to continue.' }); setLoading(false); return }
 
     const sel =
       'full_name, sex, dob, height_cm, current_weight, goal_weight, goal_target_date, activity_level, '+
@@ -186,7 +186,7 @@ useEffect(()=>{ (async()=>{
     setConditions(p.health_conditions || [])
     setEquipment(p.equipment || [])
   }catch(e){
-    console.warn(e); setMsg('Could not load your details.')
+    console.warn(e); setMsg({ kind:'error', text:'Could not load your details.' })
   }finally{ setLoading(false) }
 })() }, [supabase])
 
