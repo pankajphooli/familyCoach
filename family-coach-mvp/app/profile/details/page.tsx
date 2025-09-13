@@ -47,27 +47,27 @@ export default function ProfilePage(){
       if(auErr) { setMsg(auErr.message); setLoading(false); return }
       if(!user){ setMsg('Please sign in.'); setLoading(false); return }
 
-      const sel =
+        const sel =
         'full_name, sex, dob, height_cm, current_weight, goal_weight, goal_target_date, activity_level, '+
         'dietary_pattern, allergies, dislikes, cuisine_prefs, injuries, health_conditions, equipment'
       const res = await supabase.from('profiles').select(sel).eq('id', user.id).maybeSingle()
       if(res.error){ setMsg(res.error.message); setLoading(false); return }
-
-      // If current_weight missing in profile, fall back to latest from weights log
+      
       let prof = (res.data || {}) as Profile
+      
+      // Fallback if current_weight is null
       if(prof.current_weight == null){
         const w = await supabase
           .from('weights')
-          .select('weight_kg, date')
+          .select('coalesce(weight_kg, weight) as weight_kg, date')
           .eq('user_id', user.id)
           .order('date', { ascending:false })
           .limit(1)
           .maybeSingle()
-        if(w.data?.weight_kg != null){
-          prof = { ...prof, current_weight: Number(w.data.weight_kg) }
+        if((w.data as any)?.weight_kg != null){
+          prof = { ...prof, current_weight: Number((w.data as any).weight_kg) }
         }
       }
-
       setP(prof)
       setMsg('')
     }catch(e:any){
