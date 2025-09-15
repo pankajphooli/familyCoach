@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { maketAdminClient } from '../../../lib/supabaseAdmin'
+import { makeAdminClient } from '../../../lib/supabaseAdmin'
 
 // Run on the server (Node runtime)
 export const runtime = 'nodejs'
