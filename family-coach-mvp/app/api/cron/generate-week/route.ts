@@ -199,7 +199,7 @@ function scoreRecipeForProfile(rec:Recipe, prof:Profile, hintTags:string[]){
 async function fetchAllRecipes(supa:any): Promise<Recipe[]>{
   const { data, error } = await supa
     .from('recipes')
-    .select('name,dietary_pattern,allergens,tags,ingredients,cuisine')
+    .select('*') // robust: no hard-coded columns
     .limit(2000)
   if (error) throw error
   return (data as Recipe[]) || []
@@ -207,7 +207,7 @@ async function fetchAllRecipes(supa:any): Promise<Recipe[]>{
 async function fetchAllExercises(supa:any): Promise<Exercise[]>{
   const { data, error } = await supa
     .from('exercises')
-    .select('name,tags,equipment,contraindications,description')
+    .select('*') // robust: no hard-coded columns (fixes "exercises.tags does not exist")
     .limit(2000)
   if (error) throw error
   return (data as Exercise[]) || []
@@ -574,7 +574,7 @@ async function ensureRollingWindowForUser(supa:any, userId:string, prof:Profile,
       }
     }
 
-    // ---- Insert workout blocks (include user_id; fallback to legacy) ----
+    // ---- Insert workout blocks (include user_id; with extra minimal fallback) ----
     if (toInsertBlocks.length) {
       let ok = false
       {
@@ -583,7 +583,14 @@ async function ensureRollingWindowForUser(supa:any, userId:string, prof:Profile,
         if (!error) ok = true
       }
       if (!ok) {
-        const { error } = await supa.from('workout_blocks').insert(toInsertBlocks) // legacy schema
+        // minimal columns: title + workout_day_id + user_id
+        const rowsMin = toInsertBlocks.map(b => ({ title: b.title, workout_day_id: workoutDayId, user_id: userId }))
+        const { error } = await supa.from('workout_blocks').insert(rowsMin)
+        if (!error) ok = true
+      }
+      if (!ok) {
+        // legacy schema: no user_id
+        const { error } = await supa.from('workout_blocks').insert(toInsertBlocks)
         if (error) throw error
       }
     }
@@ -654,7 +661,7 @@ export async function POST(req: Request){
   // fetch broadly; we normalize to handle schema diffs
   const { data: rows, error: pErr } = await supa
     .from('profiles')
-    .select('*') // <-- only what exists; normalizer handles the rest
+    .select('*') // pull only what exists; normalizer copes
   if(pErr) return NextResponse.json({ ok:false, error:pErr.message }, { status: 500 })
 
   const profs: Profile[] = (rows||[]).map(normalizeProfile)
