@@ -199,16 +199,14 @@ function scoreRecipeForProfile(rec:Recipe, prof:Profile, hintTags:string[]){
 async function fetchAllRecipes(supa:any): Promise<Recipe[]>{
   const { data, error } = await supa
     .from('recipes')
-    .select('*') // robust: no hard-coded columns
-    .limit(2000)
+    .select('*') // robust to schema diffs
   if (error) throw error
   return (data as Recipe[]) || []
 }
 async function fetchAllExercises(supa:any): Promise<Exercise[]>{
   const { data, error } = await supa
     .from('exercises')
-    .select('*') // robust: no hard-coded columns (fixes "exercises.tags does not exist")
-    .limit(2000)
+    .select('*') // robust to schema diffs
   if (error) throw error
   return (data as Exercise[]) || []
 }
@@ -291,9 +289,20 @@ function generateMealTimesLocal(prof: Profile, slots: number): string[] {
   })
 }
 
+/* ---- position-based, friendly meal_type labels ---- */
+function labelForIndex(total: number, idx: number): string {
+  if (total <= 1) return 'breakfast'  // single-meal day → breakfast to keep UI simple
+  if (total === 2) return idx === 0 ? 'lunch' : 'dinner'
+  if (total === 3) return ['breakfast', 'lunch', 'dinner'][idx]
+  const base = ['breakfast','snack 1','lunch','snack 2','dinner']
+  if (idx < base.length) return base[idx]
+  return `snack ${idx - 2}` // snack 3, snack 4, …
+}
+
 function slotTagHints(total:number, idx:number): string[] {
-  if (total<=1) return ['dinner','lunch']
-  if (total===2) return idx===0 ? ['lunch'] : ['dinner','supper']
+  // keep recipe search hints broad and stable
+  if (total<=1) return ['breakfast','dinner','lunch','snack']
+  if (total===2) return idx===0 ? ['lunch','snack'] : ['dinner','supper']
   if (total===3) return idx===0 ? ['breakfast'] : idx===1 ? ['lunch'] : ['dinner']
   const order = ['breakfast','snack','lunch','snack','dinner','snack']
   return [order[Math.min(idx, order.length-1)]]
@@ -346,7 +355,15 @@ function chooseTopVaried(pool:Recipe[], count:number, rnd:()=>number, seen:Set<s
   return pick
 }
 
-async function pickMealsForDay(allRecipes:Recipe[], dayIndex:number, prof: Profile, rnd:()=>number, seenAcrossWindow:Set<string>, slots:number, userSeed:number){
+async function pickMealsForDay(
+  allRecipes:Recipe[],
+  dayIndex:number,
+  prof: Profile,
+  rnd:()=>number,
+  seenAcrossWindow:Set<string>,
+  slots:number,
+  userSeed:number
+){
   const times = generateMealTimesLocal(prof, slots)
   const picks: { meal_type: string, recipe_name: string, time_local?: string, alternates?: string[] }[] = []
   const allowed = allRecipes.filter(r => isRecipeAllowed(r, prof))
@@ -400,8 +417,11 @@ async function pickMealsForDay(allRecipes:Recipe[], dayIndex:number, prof: Profi
       }
     }
 
+    // 👇 friendly, position-based meal_type (lowercase so existing checks like .includes('break') keep working)
+    const meal_type = labelForIndex(slots, i)
+
     picks.push({
-      meal_type: `meal_${i+1}`,
+      meal_type,
       recipe_name: primaryName,
       time_local: times[i],
       alternates: alts
@@ -583,14 +603,12 @@ async function ensureRollingWindowForUser(supa:any, userId:string, prof:Profile,
         if (!error) ok = true
       }
       if (!ok) {
-        // minimal columns: title + workout_day_id + user_id
         const rowsMin = toInsertBlocks.map(b => ({ title: b.title, workout_day_id: workoutDayId, user_id: userId }))
         const { error } = await supa.from('workout_blocks').insert(rowsMin)
         if (!error) ok = true
       }
       if (!ok) {
-        // legacy schema: no user_id
-        const { error } = await supa.from('workout_blocks').insert(toInsertBlocks)
+        const { error } = await supa.from('workout_blocks').insert(toInsertBlocks) // legacy schema
         if (error) throw error
       }
     }
