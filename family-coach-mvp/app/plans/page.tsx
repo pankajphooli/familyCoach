@@ -308,7 +308,7 @@ export default function PlansPage(){
         }
       }
       await Promise.all([
-        mealsToInsert.length ? supabase.from('meals').insert(mealsToInsert) : Promise.resolve(),
+        // mealsToInsert.length ? supabase.from('meals').insert(mealsToInsert) : Promise.resolve(),
         blocksToInsert.length ? supabase.from('workout_blocks').insert(blocksToInsert) : Promise.resolve(),
       ])
 
