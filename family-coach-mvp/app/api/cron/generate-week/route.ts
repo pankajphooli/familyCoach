@@ -15,6 +15,12 @@ type Profile = {
   injuries?: string[]|null
   health_conditions?: string[]|null
   equipment?: string[]|null
+
+  // NEW (optional) knobs for meals scheduling:
+  meals_per_day?: number|null
+  eating_window_start?: string|null   // "HH:MM" in local time
+  eating_window_end?: string|null     // "HH:MM" in local time
+  fasting_hours?: number|null         // e.g. 16 for 16:8
 }
 
 type Recipe = {
@@ -51,10 +57,7 @@ function nowInLondon(): Date {
   const hh = Number(parts.hour), mm = Number(parts.minute), ss = Number(parts.second)
   return new Date(Date.UTC(y, m-1, d, hh, mm, ss))
 }
-
-function ymdLocal(d:Date){
-  return ymdFromParts(d.getUTCFullYear(), d.getUTCMonth()+1, d.getUTCDate())
-}
+function ymdLocal(d:Date){ return ymdFromParts(d.getUTCFullYear(), d.getUTCMonth()+1, d.getUTCDate()) }
 
 function mondayOfWeek(d: Date){
   const dd = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
@@ -63,27 +66,18 @@ function mondayOfWeek(d: Date){
   return dd
 }
 function addDays(d:Date, n:number){ const x = new Date(d); x.setUTCDate(x.getUTCDate()+n); return x }
-function rangeMonToSun(monday:Date){
-  const arr: Date[] = []
-  for(let i=0;i<7;i++){ arr.push(addDays(monday,i)) }
-  return arr
-}
 
 function normalize(s?:string|null){ return (s||'').trim().toLowerCase() }
-
-// Normalize any `tags` shape (text | text[] | jsonb -> text[] lowercased)
-function normalizeTags(tags:any): string[] {
-  if (!tags) return []
-  if (Array.isArray(tags)) {
-    // text[] or jsonb[]
-    return tags.map((t:any)=> normalize(typeof t === 'string' ? t : String(t)))
-  }
-  // assume comma/space separated string
-  return String(tags)
-    .split(/[,;|]/g)
-    .map(x=>normalize(x))
-    .filter(Boolean)
+function toHM(s?:string|null): [number, number] | null {
+  if(!s) return null
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s.trim())
+  if(!m) return null
+  const hh = Math.max(0, Math.min(23, Number(m[1])))
+  const mm = Math.max(0, Math.min(59, Number(m[2])))
+  return [hh, mm]
 }
+function pad2(n:number){ return String(n).padStart(2, '0') }
+function hmToStr(h:number,m:number){ return `${pad2(h)}:${pad2(m)}:00` } // HH:MM:00
 
 function hashString(s:string){
   let h = 2166136261 >>> 0
@@ -99,6 +93,14 @@ function seededShuffle<T>(arr:T[], rnd:()=>number){
   return a
 }
 
+/* ---------- tag normalization (robust to text/text[]/jsonb) ---------- */
+
+function normalizeTags(tags:any): string[] {
+  if (!tags) return []
+  if (Array.isArray(tags)) return tags.map((t:any)=> normalize(typeof t === 'string' ? t : String(t)))
+  return String(tags).split(/[,;|]/g).map(x=>normalize(x)).filter(Boolean)
+}
+
 /* ------------- constraints & pickers -------------- */
 
 function isRecipeAllowed(rec: Recipe, prof: Profile){
@@ -109,7 +111,6 @@ function isRecipeAllowed(rec: Recipe, prof: Profile){
   const dislikes  = (prof.dislikes ||[]).map(normalize)
   const recAllergens: string[] = ((rec as any).allergens || []).map((x:any)=>normalize(String(x)))
 
-  // Relaxed pattern compatibility: if profile is veg, recipe must be veg/vegan OR name must not include common meats.
   if(patt){
     if(patt.includes('veg') && !patt.includes('non')) {
       if(rp && !(rp.includes('veg') || rp.includes('vegan') || rp.includes('vegetarian'))) {
@@ -131,14 +132,12 @@ function isExerciseAllowed(ex: Exercise, prof:Profile){
   const need: string[] = ((ex.equipment||[]) as any[]).map(x=>normalize(String(x)))
   const contra: string[] = ((ex.contraindications||[]) as any[]).map(x=>normalize(String(x)))
   const flags = new Set([...(prof.injuries||[]), ...(prof.health_conditions||[])].map(normalize))
-
   const okEquip = need.length===0 || need.includes('none') || need.every(n=>have.has(n))
   if(!okEquip) return false
   if(contra.length && [...flags].some(f => contra.includes(f))) return false
   return true
 }
 
-// Pull broadly, then filter in code (robust to different DB tag shapes)
 async function fetchAllRecipes(supa:any): Promise<Recipe[]>{
   const { data, error } = await supa
     .from('recipes')
@@ -174,41 +173,87 @@ function chooseVaried(all:Recipe[], count:number, rnd:()=>number, seen:Set<strin
   return pick
 }
 
-async function defaultsForMeals(dayIndex:number, prof: Profile, supa:any, rnd:()=>number){
-  // Build candidate pools by tag in code
-  const all = await fetchAllRecipes(supa)
-  const tagWanted = ['Breakfast','Lunch','Dinner'] as const
-  const pools: Record<(typeof tagWanted)[number], Recipe[]> = {
-    Breakfast: [],
-    Lunch: [],
-    Dinner: []
+/* --------- meal slots & timing based on fasting/eating window ---------- */
+
+function clamp(n:number, lo:number, hi:number){ return Math.max(lo, Math.min(hi, n)) }
+
+function deriveEatingWindow(prof: Profile){
+  // Priority: explicit start/end > fasting_hours > sensible default
+  const startHM = toHM(prof.eating_window_start || '')
+  const endHM   = toHM(prof.eating_window_end   || '')
+  if (startHM && endHM) {
+    return { start: startHM, end: endHM }
   }
-
-  for (const r of all) {
-    const tags = normalizeTags((r as any).tags)
-    // simple heuristics so it's resilient even if tags are missing:
-    const nm = normalize(r.name)
-    const has = (t:string)=> tags.includes(normalize(t))
-    if (has('breakfast') || /oat|porridge|toast|pancake|smoothie|omelet|omelette|cereal|breakfast/.test(nm)) pools.Breakfast.push(r)
-    if (has('lunch')     || /wrap|salad|bowl|sandwich|rice|noodle|lunch/.test(nm))            pools.Lunch.push(r)
-    if (has('dinner')    || /curry|stir fry|pasta|roast|grill|casserole|dinner|biryani/.test(nm)) pools.Dinner.push(r)
-  }
-
-  // filter by profile allowances
-  const B = pools.Breakfast.filter(r => isRecipeAllowed(r, prof))
-  const L = pools.Lunch.filter(r => isRecipeAllowed(r, prof))
-  const D = pools.Dinner.filter(r => isRecipeAllowed(r, prof))
-
-  const seen = new Set<string>()
-  const b = chooseVaried(B,1,rnd,seen)[0]?.name || 'Oat Bowl'
-  const l = chooseVaried(L,1,rnd,seen)[0]?.name || 'Chicken Wrap'
-  const d = chooseVaried(D,1,rnd,seen)[0]?.name || 'Veg Stir Fry'
-  return [
-    { meal_type:'breakfast', recipe_name:b },
-    { meal_type:'lunch',     recipe_name:l },
-    { meal_type:'dinner',    recipe_name:d },
-  ]
+  const fasting = typeof prof.fasting_hours === 'number' ? clamp(Math.round(prof.fasting_hours), 0, 23) : 16
+  const eatHours = clamp(24 - fasting, 4, 14) // keep reasonable window
+  // default anchor = 12:00 start of eating (so 16:8 becomes 12:00–20:00)
+  const sH = 12, sM = 0
+  const eH = (sH + eatHours) % 24, eM = sM
+  return { start: [sH, sM] as [number,number], end: [eH, eM] as [number,number] }
 }
+
+function generateMealTimesLocal(prof: Profile, slots: number): string[] {
+  // Returns ["HH:MM:00", ...] local-to-London textual times
+  const n = clamp(Number(prof.meals_per_day || slots || 3), 1, 6)
+  const { start, end } = deriveEatingWindow(prof)
+  const [sh, sm] = start, [eh, em] = end
+
+  // Convert to minutes since 00:00 with wrap handling if end < start
+  const S = sh*60 + sm
+  let E = eh*60 + em
+  if (E <= S) E += 24*60 // allow overnight windows
+
+  const windowMin = E - S
+  if (n === 1) {
+    const t = S + Math.floor(windowMin/2)
+    const h = Math.floor((t % (24*60))/60), m = (t % 60)
+    return [hmToStr(h,m)]
+  }
+
+  const step = Math.floor(windowMin / (n - 1))
+  const times: string[] = []
+  for (let i=0;i<n;i++){
+    const t = S + i*step
+    const h = Math.floor((t % (24*60))/60), m = (t % 60)
+    times.push(hmToStr(h,m))
+  }
+  return times
+}
+
+function slotTagHints(total:number, idx:number): string[] {
+  // Broad hints so we match imperfect datasets
+  if (total<=1) return ['dinner','lunch']
+  if (total===2) return idx===0 ? ['lunch'] : ['dinner','supper']
+  if (total===3) return idx===0 ? ['breakfast'] : idx===1 ? ['lunch'] : ['dinner']
+  // 4+ : add snacks; place snack after lunch and/or late
+  if (total===4) return ['breakfast','lunch','snack','dinner'][idx] ? [(['breakfast','lunch','snack','dinner'] as const)[idx]] : ['snack']
+  // 5 or 6 -> B, snack, L, snack, D, late snack
+  const order = ['breakfast','snack','lunch','snack','dinner','snack']
+  return [order[Math.min(idx, order.length-1)]]
+}
+
+async function pickMealsForSlots(slotCount:number, dayIndex:number, prof: Profile, supa:any, rnd:()=>number){
+  // Pool recipes broadly, tag-match in code, then profile-filter
+  const all = await fetchAllRecipes(supa)
+  const seen = new Set<string>()
+  const picks: { meal_type: string, recipe_name: string }[] = []
+
+  for (let i=0;i<slotCount;i++){
+    const hints = slotTagHints(slotCount, i)
+    const pool = all.filter(r => {
+      const tags = normalizeTags((r as any).tags)
+      const nm = normalize(r.name)
+      const hit = hints.some(h => tags.includes(h) || nm.includes(h))
+      return hit && isRecipeAllowed(r, prof)
+    })
+    const chosen = chooseVaried(pool.length ? pool : all.filter(r=>isRecipeAllowed(r, prof)), 1, rnd, seen)[0]
+    const recipeName = chosen?.name || (i===0 ? 'Oat Bowl' : i===slotCount-1 ? 'Veg Stir Fry' : 'Chicken Wrap')
+    picks.push({ meal_type: `meal_${i+1}`, recipe_name: recipeName })
+  }
+  return picks
+}
+
+/* ---------------- exercises ---------------- */
 
 async function filteredExercises(prof:Profile, supa:any): Promise<Exercise[]>{
   const { data, error } = await supa.from('exercises')
@@ -233,7 +278,6 @@ async function pickWorkoutFor(dayIndex:number, prof:Profile, supa:any, rnd:()=>n
   const exs = await filteredExercises(prof, supa)
   const used = new Set<string>()
 
-  // Be generous with tag names so it maps to common datasets
   const cycles = [
     { want: ['push','upper','chest','shoulder','triceps'] , key:'push'   },
     { want: ['pull','upper','back','biceps']               , key:'pull'   },
@@ -310,31 +354,53 @@ async function ensureDayForUser(supa:any, userId:string, prof:Profile, dateISO:s
   ])
 
   const toInsertMeals:any[] = []
+  const toInsertMealsNoTime:any[] = [] // fallback if meals.time_local doesn't exist
   const toInsertBlocks:any[] = []
 
   // seed: stable per user & date
   const seed = hashString(`${userId}|${dateISO}`)
   const rnd = mulberry32(seed)
 
-  // dayIndex needed for meal/workout rotation (Mon..Sun)
+  // dayIndex needed for workout rotation (Mon..Sun)
   const parts = dateISO.split('-').map(Number)
   const d = new Date(Date.UTC(parts[0], parts[1]-1, parts[2]))
   const idx = dayIndexWithinWeek(d)
 
+  // ----- MEALS -----
   if((mealsExisting||[]).length === 0){
-    const defs = await defaultsForMeals(idx, prof, supa, rnd)
-    defs.forEach(m => toInsertMeals.push({ ...m, plan_day_id: planDayId }))
+    const slots = clamp(Number(prof.meals_per_day || 3), 1, 6)
+    const times = generateMealTimesLocal(prof, slots) // array of "HH:MM:00"
+    const picks = await pickMealsForSlots(slots, idx, prof, supa, rnd)
+
+    for (let i=0;i<slots;i++){
+      const base = { meal_type: picks[i].meal_type, recipe_name: picks[i].recipe_name, plan_day_id: planDayId }
+      toInsertMeals.push({ ...base, time_local: times[i] })  // optimistic (if column exists)
+      toInsertMealsNoTime.push(base)                         // safe fallback
+    }
   }
+
+  // ----- WORKOUTS -----
   if((blocksExisting||[]).length === 0){
     const defsB = await pickWorkoutFor(idx, prof, supa, rnd)
     defsB.forEach(b => toInsertBlocks.push({ ...b, workout_day_id: workoutDayId }))
   }
 
-  if(toInsertMeals.length) await supa.from('meals').insert(toInsertMeals)
-  if(toInsertBlocks.length) await supa.from('workout_blocks').insert(toInsertBlocks)
+  // Insert meals with optional time_local; if unknown column, retry without it
+  if(toInsertMeals.length){
+    const { error: mealErr } = await supa.from('meals').insert(toInsertMeals)
+    if (mealErr) {
+      // retry without time_local
+      const { error: mealErr2 } = await supa.from('meals').insert(toInsertMealsNoTime)
+      if (mealErr2) throw mealErr2
+    }
+  }
+  if(toInsertBlocks.length){
+    const { error: blkErr } = await supa.from('workout_blocks').insert(toInsertBlocks)
+    if (blkErr) throw blkErr
+  }
 
   return {
-    meals_added: toInsertMeals.length,
+    meals_added: toInsertMeals.length || toInsertMealsNoTime.length,
     blocks_added: toInsertBlocks.length
   }
 }
@@ -364,10 +430,15 @@ export async function POST(req: Request){
   const override = getQueryDate(req)
   const targetDateISO = override || ymdLocal(nowInLondon())
 
-  // fetch all users who have a profile
+  // fetch all users who have a profile (including optional knobs)
   const { data: profs, error: pErr } = await supa
     .from('profiles')
-    .select('id,dietary_pattern,meat_policy,allergies,dislikes,cuisine_prefs,injuries,health_conditions,equipment')
+    .select(`
+      id,
+      dietary_pattern, meat_policy, allergies, dislikes, cuisine_prefs,
+      injuries, health_conditions, equipment,
+      meals_per_day, eating_window_start, eating_window_end, fasting_hours
+    `)
   if(pErr) return NextResponse.json({ ok:false, error:pErr.message }, { status: 500 })
 
   let totalUsers = 0
