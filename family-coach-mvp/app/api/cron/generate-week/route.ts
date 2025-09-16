@@ -632,19 +632,10 @@ export async function POST(req: Request){
   const startDateISO = override || ymdLocal(nowInLondon())
 
   // fetch broadly; we normalize to handle schema diffs
-  const { data: rows, error: pErr } = await supa
-    .from('profiles')
-    .select(`
-      id,
-      dietary_pattern, meat_policy,
-      allergies, dislikes,
-      cuisine_prefs, cuisines,
-      injuries, health_conditions, conditions,
-      equipment,
-      meals_per_day,
-      eating_window_start, eating_window_end, fasting_hours,
-      fasting_window
-    `)
+const { data: rows, error: pErr } = await supa
+  .from('profiles')
+  .select('*') 
+  
   if(pErr) return NextResponse.json({ ok:false, error:pErr.message }, { status: 500 })
 
   const profs: Profile[] = (rows||[]).map(normalizeProfile)
