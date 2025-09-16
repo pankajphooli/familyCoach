@@ -550,22 +550,42 @@ async function ensureRollingWindowForUser(supa:any, userId:string, prof:Profile,
       })
     }
 
-    if(toInsertMeals_full.length){
+    // ---- Insert meals with robust fallbacks & user_id ----
+    if (toInsertMeals_full.length) {
       let inserted = false
-      const r1 = await supa.from('meals').insert(toInsertMeals_full)
-      if (!r1.error) inserted = true
-      if (!inserted){
-        const r2 = await supa.from('meals').insert(toInsertMeals_timeOnly)
-        if (!r2.error) inserted = true
+      {
+        const rows = toInsertMeals_full.map(r => ({ ...r, user_id: userId }))
+        const { error } = await supa.from('meals').insert(rows)
+        if (!error) inserted = true
       }
-      if (!inserted){
-        const r3 = await supa.from('meals').insert(toInsertMeals_base)
-        if (r3.error) throw r3.error
+      if (!inserted) {
+        const rows = toInsertMeals_timeOnly.map(r => ({ ...r, user_id: userId }))
+        const { error } = await supa.from('meals').insert(rows)
+        if (!error) inserted = true
+      }
+      if (!inserted) {
+        const rows = toInsertMeals_base.map(r => ({ ...r, user_id: userId }))
+        const { error } = await supa.from('meals').insert(rows)
+        if (!error) inserted = true
+      }
+      if (!inserted) {
+        const { error } = await supa.from('meals').insert(toInsertMeals_base) // legacy schema w/o user_id
+        if (error) throw error
       }
     }
-    if(toInsertBlocks.length){
-      const { error: blkErr } = await supa.from('workout_blocks').insert(toInsertBlocks)
-      if (blkErr) throw blkErr
+
+    // ---- Insert workout blocks (include user_id; fallback to legacy) ----
+    if (toInsertBlocks.length) {
+      let ok = false
+      {
+        const rows = toInsertBlocks.map(r => ({ ...r, user_id: userId }))
+        const { error } = await supa.from('workout_blocks').insert(rows)
+        if (!error) ok = true
+      }
+      if (!ok) {
+        const { error } = await supa.from('workout_blocks').insert(toInsertBlocks) // legacy schema
+        if (error) throw error
+      }
     }
 
     results.push({
@@ -632,10 +652,9 @@ export async function POST(req: Request){
   const startDateISO = override || ymdLocal(nowInLondon())
 
   // fetch broadly; we normalize to handle schema diffs
-const { data: rows, error: pErr } = await supa
-  .from('profiles')
-  .select('*') 
-  
+  const { data: rows, error: pErr } = await supa
+    .from('profiles')
+    .select('*') // <-- only what exists; normalizer handles the rest
   if(pErr) return NextResponse.json({ ok:false, error:pErr.message }, { status: 500 })
 
   const profs: Profile[] = (rows||[]).map(normalizeProfile)
