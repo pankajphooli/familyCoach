@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getAdminClient() } from '../../../lib/supabaseAdmin'
+import { getAdminClient } from '../../../lib/supabaseAdmin'
 
 // Run on the server (Node runtime)
 export const runtime = 'nodejs'
@@ -63,11 +63,6 @@ function mondayOfWeek(d: Date){
   return dd
 }
 function addDays(d:Date, n:number){ const x = new Date(d); x.setUTCDate(x.getUTCDate()+n); return x }
-function rangeMonToSun(monday:Date){
-  const arr: Date[] = []
-  for(let i=0;i<7;i++){ arr.push(addDays(monday,i)) }
-  return arr
-}
 
 function normalize(s?:string|null){ return (s||'').trim().toLowerCase() }
 function hashString(s:string){
@@ -213,72 +208,86 @@ async function pickWorkoutFor(dayIndex:number, prof:Profile, supa:any, rnd:()=>n
   ]
 }
 
-/* ------------- core generation per user/week -------------- */
+/* ------------- core generation per user/day -------------- */
 
-async function ensureWeekForUser(supa:any, userId:string, prof:Profile, monday:Date){
-  const mondayStr = ymdLocal(monday)
-  const dates = rangeMonToSun(monday).map(ymdLocal)
+function dayIndexWithinWeek(target: Date){
+  // Monday=0 ... Sunday=6 in London-local sense
+  const mon = mondayOfWeek(target)
+  const diffMs = (new Date(Date.UTC(target.getUTCFullYear(),target.getUTCMonth(),target.getUTCDate())).getTime()
+                - mon.getTime())
+  return Math.round(diffMs / (24*3600*1000))
+}
 
-  // ensure days exist
-  const [pds, wds] = await Promise.all([
-    supa.from('plan_days').select('id,date').eq('user_id', userId).in('date', dates),
-    supa.from('workout_days').select('id,date').eq('user_id', userId).in('date', dates),
+async function ensureDayForUser(supa:any, userId:string, prof:Profile, dateISO:string){
+  // ensure plan_day and workout_day rows exist for this date
+  const [{ data: pdRows }, { data: wdRows }] = await Promise.all([
+    supa.from('plan_days').select('id').eq('user_id', userId).eq('date', dateISO).limit(1),
+    supa.from('workout_days').select('id').eq('user_id', userId).eq('date', dateISO).limit(1),
   ])
 
-  const havePd = new Map<string,string>()
-  const haveWd = new Map<string,string>()
-  ;(pds.data||[]).forEach((r:any)=> havePd.set(r.date, r.id))
-  ;(wds.data||[]).forEach((r:any)=> haveWd.set(r.date, r.id))
+  let planDayId = pdRows?.[0]?.id as string|undefined
+  let workoutDayId = wdRows?.[0]?.id as string|undefined
 
-  const pdMissing = dates.filter(d => !havePd.has(d)).map(d => ({ user_id:userId, date:d }))
-  const wdMissing = dates.filter(d => !haveWd.has(d)).map(d => ({ user_id:userId, date:d }))
-  if(pdMissing.length) await supa.from('plan_days').insert(pdMissing)
-  if(wdMissing.length) await supa.from('workout_days').insert(wdMissing)
-
-  // refresh maps after potential inserts
-  const [pds2, wds2] = await Promise.all([
-    supa.from('plan_days').select('id,date').eq('user_id', userId).in('date', dates),
-    supa.from('workout_days').select('id,date').eq('user_id', userId).in('date', dates),
-  ])
-  const pdByDate:Record<string,string> = {}; (pds2.data||[]).forEach((r:any)=>pdByDate[r.date]=r.id)
-  const wdByDate:Record<string,string> = {}; (wds2.data||[]).forEach((r:any)=>wdByDate[r.date]=r.id)
-
-  // which days already have content?
-  const [mealsAll, blocksAll] = await Promise.all([
-    supa.from('meals').select('id,plan_day_id').in('plan_day_id', Object.values(pdByDate)),
-    supa.from('workout_blocks').select('id,workout_day_id').in('workout_day_id', Object.values(wdByDate)),
-  ])
-  const pdWithMeals = new Set((mealsAll.data||[]).map((m:any)=>m.plan_day_id))
-  const wdWithBlocks = new Set((blocksAll.data||[]).map((b:any)=>b.workout_day_id))
-
-  const mealsToInsert:any[] = []
-  const blocksToInsert:any[] = []
-
-  for(let i=0;i<dates.length;i++){
-    const date = dates[i]
-    const seed = hashString(`${userId}|${mondayStr}|${date}`)
-    const rnd = mulberry32(seed)
-
-    const pdId = pdByDate[date]
-    const wdId = wdByDate[date]
-
-    if(pdId && !pdWithMeals.has(pdId)){
-      const defs = await defaultsForMeals(i, prof, supa, rnd)
-      defs.forEach(m => mealsToInsert.push({ ...m, plan_day_id: pdId }))
-    }
-    if(wdId && !wdWithBlocks.has(wdId)){
-      const defsB = await pickWorkoutFor(i, prof, supa, rnd)
-      defsB.forEach(b => blocksToInsert.push({ ...b, workout_day_id: wdId }))
-    }
+  if(!planDayId){
+    const { data, error } = await supa.from('plan_days').insert({ user_id:userId, date:dateISO }).select('id').single()
+    if(error) throw error
+    planDayId = data.id
+  }
+  if(!workoutDayId){
+    const { data, error } = await supa.from('workout_days').insert({ user_id:userId, date:dateISO }).select('id').single()
+    if(error) throw error
+    workoutDayId = data.id
   }
 
-  if(mealsToInsert.length) await supa.from('meals').insert(mealsToInsert)
-  if(blocksToInsert.length) await supa.from('workout_blocks').insert(blocksToInsert)
+  // if meals/workout already exist, skip generation (idempotent)
+  const [{ data: mealsExisting }, { data: blocksExisting }] = await Promise.all([
+    supa.from('meals').select('id').eq('plan_day_id', planDayId),
+    supa.from('workout_blocks').select('id').eq('workout_day_id', workoutDayId),
+  ])
 
-  return { meals: mealsToInsert.length, blocks: blocksToInsert.length }
+  const toInsertMeals:any[] = []
+  const toInsertBlocks:any[] = []
+
+  // seed: stable per user & date
+  const seed = hashString(`${userId}|${dateISO}`)
+  const rnd = mulberry32(seed)
+
+  // dayIndex needed for meal/workout rotation (Mon..Sun)
+  const parts = dateISO.split('-').map(Number)
+  const d = new Date(Date.UTC(parts[0], parts[1]-1, parts[2]))
+  const idx = dayIndexWithinWeek(d)
+
+  if((mealsExisting||[]).length === 0){
+    const defs = await defaultsForMeals(idx, prof, supa, rnd)
+    defs.forEach(m => toInsertMeals.push({ ...m, plan_day_id: planDayId }))
+  }
+  if((blocksExisting||[]).length === 0){
+    const defsB = await pickWorkoutFor(idx, prof, supa, rnd)
+    defsB.forEach(b => toInsertBlocks.push({ ...b, workout_day_id: workoutDayId }))
+  }
+
+  if(toInsertMeals.length) await supa.from('meals').insert(toInsertMeals)
+  if(toInsertBlocks.length) await supa.from('workout_blocks').insert(toInsertBlocks)
+
+  return {
+    meals_added: toInsertMeals.length,
+    blocks_added: toInsertBlocks.length
+  }
 }
 
 /* ---------------- route handler ---------------- */
+
+// Utility to extract ?date=YYYY-MM-DD for manual testing
+function getQueryDate(req: Request): string | null {
+  try {
+    const url = new URL(req.url)
+    const d = url.searchParams.get('date')
+    if(!d) return null
+    // basic YYYY-MM-DD check
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null
+    return d
+  } catch { return null }
+}
 
 export async function POST(req: Request){
   // simple shared secret to prevent public abuse
@@ -289,15 +298,16 @@ export async function POST(req: Request){
 
   const supa = getAdminClient()
 
-  // figure out weeks in London time:
-  const now = nowInLondon()
-  const thisMon = mondayOfWeek(now)
-  const nextMon = addDays(thisMon, 7)
-
-  // We generate both:
-  //  - remaining days of this week (in case someone joined mid-week)
-  //  - the entire next week (so grocery can be bought 2–3 days ahead)
-  const weeksToEnsure = [thisMon, nextMon]
+  // Figure out the target date in Europe/London.
+  // At 00:00 daily, this should be "today" in London.
+  const override = getQueryDate(req)
+  let targetDateISO: string
+  if(override){
+    targetDateISO = override
+  } else {
+    const now = nowInLondon()
+    targetDateISO = ymdLocal(now)
+  }
 
   // fetch all users who have a profile
   const { data: profs, error: pErr } = await supa
@@ -312,17 +322,18 @@ export async function POST(req: Request){
     const uid = raw.id
     if(!uid) continue
     totalUsers++
-
-    for(const wk of weeksToEnsure){
-      const r = await ensureWeekForUser(supa, uid, raw, wk)
-      results.push({ user: uid, monday: ymdLocal(wk), ...r })
+    try{
+      const r = await ensureDayForUser(supa, uid, raw, targetDateISO)
+      results.push({ user: uid, date: targetDateISO, ...r })
+    }catch(e:any){
+      results.push({ user: uid, date: targetDateISO, error: e?.message || String(e) })
     }
   }
 
-  return NextResponse.json({ ok:true, users: totalUsers, results })
+  return NextResponse.json({ ok:true, date: targetDateISO, users: totalUsers, results })
 }
 
 export async function GET(req: Request){
-  // optional: allow a GET ping for manual testing (with the same header)
+  // optional: allow a GET ping for manual testing (with the same header and optional ?date=YYYY-MM-DD)
   return POST(req)
 }
