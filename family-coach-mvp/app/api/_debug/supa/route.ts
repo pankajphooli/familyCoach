@@ -2,13 +2,12 @@ import { NextResponse } from 'next/server'
 import { getAdminClient } from '../../../lib/supabaseAdmin'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
 export async function GET() {
   try {
     const supa = getAdminClient()
     const { count, error } = await supa
       .from('profiles')
-      .select('*', { count: 'exact', head: true })
+      .select('*', { head: true, count: 'exact' })
     if (error) throw error
     return NextResponse.json({ ok: true, profiles_count: count ?? null })
   } catch (e:any) {
