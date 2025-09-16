@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
   "crons": [
-    { "path": "/api/cron/generate-week", "schedule": "0 0 * * *" },
-    { "path": "/api/cron/generate-week", "schedule": "0 23 * * *" }
+    { "path": "/api/cron/generate-week", "schedule": "0 0 * * *" }
   ]
 }
