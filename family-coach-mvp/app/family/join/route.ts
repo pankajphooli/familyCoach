@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     const jwt = getAccessTokenFromCookie()
     if (!jwt) return NextResponse.json({ error: 'Not signed in (no Supabase auth cookie)' }, { status: 401 })
 
-    const admin = createAdminClient()
+    const admin = getAdminClient()
     const { data: userData, error: userErr } = await admin.auth.getUser(jwt)
     if (userErr || !userData?.user?.id) {
       return NextResponse.json({ error: 'Invalid/expired session' }, { status: 401 })
