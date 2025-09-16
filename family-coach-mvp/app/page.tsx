@@ -38,6 +38,19 @@ const pad = (n: number) => String(n).padStart(2, '0')
 const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 const todayStr = ymd(new Date())
 
+/** Label meals by position in the day (sorted by time_local) */
+function labelForIndex(total: number, idx: number): string {
+  // Match the generator’s intent for small counts
+  if (total <= 1) return 'Dinner'
+  if (total === 2) return idx === 0 ? 'Lunch' : 'Dinner'
+  if (total === 3) return ['Breakfast', 'Lunch', 'Dinner'][idx]
+
+  // 4 or more: Breakfast → Snack 1 → Lunch → Snack 2 → Dinner → Snack 3…
+  const base = ['Breakfast', 'Snack 1', 'Lunch', 'Snack 2', 'Dinner']
+  if (idx < base.length) return base[idx]
+  return `Snack ${idx - 2}` // Snack 3, 4, ...
+}
+
 function mondayOfWeek(d: Date) {
   const c = new Date(d.getFullYear(), d.getMonth(), d.getDate())
   const wd = c.getDay() || 7 // Monday=1..Sunday=7
@@ -55,7 +68,10 @@ function weekDatesFrom(d: Date) {
   return out
 }
 const weekDates = weekDatesFrom(new Date())
-
+const [tab, setTab] = useState<'today' | 'week'>('today')
+const [selDate, setSelDate] = useState<string>(
+  weekDates.includes(todayStr) ? todayStr : weekDates[0]
+)
 const MEAL_TIME: Record<string, string> = {
   breakfast: '08:00 – 09:00',
   snack: '10:30 – 11:00',
@@ -433,6 +449,7 @@ export default function HomePage() {
   const listMeals = dedupeMealsForDisplay(rawMeals) // extra safety
   const listEvents = (eventsByDate[showDate] || [])
   const listBlocks = (blocksByDate[showDate] || [])
+  const totalMeals = listMeals.length;
 
   async function addWeight() {
     try {
@@ -529,11 +546,15 @@ export default function HomePage() {
           : (listMeals.length === 0
               ? <div className="muted">No plan yet.</div>
               : <ul className={styles.list}>
-                  {listMeals.map(m => (
+                  {listMeals.map((m, i) => (
                     <li key={m.id} className={styles.row}>
-                      <div>{mealLabel(m.meal_type)}</div>
-                      <div className={styles.time}>{MEAL_TIME[m.meal_type] || '—'}</div>
-                      <div className="muted" style={{ gridColumn: '1 / -1' }}>{m.recipe_name || 'TBD'}</div>
+                      <div>{labelForIndex(totalMeals, i)}</div>
+                      <div className={styles.time}>
+                        {(m as any).time_local ? ((m as any).time_local as string).slice(0, 5) : '—'}
+                      </div>
+                      <div className="muted" style={{ gridColumn: '1 / -1' }}>
+                        {m.recipe_name || '—'}
+                      </div>
                     </li>
                   ))}
                 </ul>
