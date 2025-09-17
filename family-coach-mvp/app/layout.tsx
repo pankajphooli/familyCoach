@@ -8,6 +8,9 @@ import type { Metadata } from 'next'
 import MobileHeader from './components/ui/MobileHeader'
 import BottomNav from './components/ui/BottomNav'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export const metadata: Metadata = {
   title: 'HouseholdHQ',
   description: 'Family plans, diet, workouts, calendar, and grocery — all in one place.',
