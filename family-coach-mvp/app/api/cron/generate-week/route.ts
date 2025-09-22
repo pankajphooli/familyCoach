@@ -4,8 +4,6 @@ import { getAdminClient } from '../../../lib/supabaseAdmin'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-/* ======================= Types ======================= */
-
 type Raw = any
 
 type Profile = {
@@ -19,9 +17,9 @@ type Profile = {
   health_conditions?: string[]|null
   equipment?: string[]|null
   meals_per_day?: number|null
-  eating_window_start?: string|null   // "HH:MM"
-  eating_window_end?: string|null     // "HH:MM"
-  fasting_hours?: number|null         // e.g. 16
+  eating_window_start?: string|null
+  eating_window_end?: string|null
+  fasting_hours?: number|null
 }
 
 type Recipe = {
@@ -41,7 +39,7 @@ type Exercise = {
   description?: string|null
 }
 
-/* ======================= Time helpers (Europe/London) ======================= */
+/* ===== London time & date helpers ===== */
 
 function ymdFromParts(y:number,m:number,d:number){ return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` }
 function nowInLondon(): Date {
@@ -60,7 +58,14 @@ function ymdLocal(d:Date){ return ymdFromParts(d.getUTCFullYear(), d.getUTCMonth
 function addDays(d:Date, n:number){ const x = new Date(d); x.setUTCDate(x.getUTCDate()+n); return x }
 function rangeDays(start:Date, count:number){ return Array.from({length:count},(_,i)=> addDays(start,i)) }
 
-/* ======================= Utils & normalization ======================= */
+function mondayOfWeek(d: Date){
+  const dd = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+  const dow = dd.getUTCDay() || 7 // 1..7, Monday=1
+  if(dow>1){ dd.setUTCDate(dd.getUTCDate()-(dow-1)) }
+  return dd
+}
+
+/* ===== utils ===== */
 
 function normalize(s?:string|null){ return (s||'').trim().toLowerCase() }
 function pad2(n:number){ return String(n).padStart(2, '0') }
@@ -88,34 +93,30 @@ function seededShuffle<T>(arr:T[], rnd:()=>number){
   return a
 }
 
-/* ---- robust list parsing for text/jsonb/array ---- */
+/* ---- robust list parsing ---- */
 function toList(val: any): string[] {
   if (val == null) return []
   if (Array.isArray(val)) return val.map(v => String(v)).map(s => s.trim()).filter(Boolean)
   const s = String(val).trim()
   if (!s) return []
-  // Try JSON array
-  if ((s.startsWith('[') && s.endsWith(']')) || (s.startsWith('{') && s.endsWith('}'))) {
-    try {
+  try {
+    if ((s.startsWith('[') && s.endsWith(']')) || (s.startsWith('{') && s.endsWith('}'))) {
       const j = JSON.parse(s)
       if (Array.isArray(j)) return j.map(v=>String(v)).map(x=>x.trim()).filter(Boolean)
-    } catch {}
-  }
-  // CSV / semi / pipe / newline
+    }
+  } catch {}
   return s.split(/[,\n;|]/g).map(x => x.trim()).filter(Boolean)
 }
-
 function normalizeTags(tags:any): string[] {
   if (!tags) return []
   if (Array.isArray(tags)) return tags.map((t:any)=> normalize(typeof t === 'string' ? t : String(t)))
   return String(tags).split(/[,;|]/g).map(x=>normalize(x)).filter(Boolean)
 }
 
-/* ---- fasting window parser (handles "16:8" or "12:00-20:00") ---- */
+/* ---- fasting window parser ---- */
 function parseFastingWindow(val: any): { fasting_hours?: number|null, eating_window_start?: string|null, eating_window_end?: string|null } {
   const s = (val==null) ? '' : String(val).trim()
   if (!s) return {}
-  // Format: "HH:MM-HH:MM"
   let m = /^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/.exec(s)
   if (m) {
     const sh = String(Math.max(0, Math.min(23, Number(m[1])))).padStart(2,'0')
@@ -124,22 +125,18 @@ function parseFastingWindow(val: any): { fasting_hours?: number|null, eating_win
     const em = String(Math.max(0, Math.min(59, Number(m[4])))).padStart(2,'0')
     return { eating_window_start:`${sh}:${sm}`, eating_window_end:`${eh}:${em}` }
   }
-  // Format: "HH-HH"
   m = /^(\d{1,2})\s*-\s*(\d{1,2})$/.exec(s)
   if (m) {
     const sh = String(Math.max(0, Math.min(23, Number(m[1])))).padStart(2,'0')
     const eh = String(Math.max(0, Math.min(23, Number(m[2])))).padStart(2,'0')
     return { eating_window_start:`${sh}:00`, eating_window_end:`${eh}:00` }
   }
-  // Format: "fast:eat" e.g. "16:8"
-  m = /^(\d{1,2})\s*:\s*(\d{1,2})$/.exec(s)
-  if (m) {
-    return { fasting_hours: Math.max(0, Math.min(23, Number(m[1]))) }
-  }
+  m = /^(\d{1,2})\s*:\s*(\d{1,2})$/.exec(s) // "16:8"
+  if (m) return { fasting_hours: Math.max(0, Math.min(23, Number(m[1]))) }
   return {}
 }
 
-/* ======================= Constraints & scoring ======================= */
+/* ===== constraints & scoring ===== */
 
 function isRecipeAllowed(rec: Recipe, prof: Profile){
   const patt = normalize(prof.dietary_pattern||prof.meat_policy)
@@ -182,81 +179,58 @@ function scoreRecipeForProfile(rec:Recipe, prof:Profile, hintTags:string[]){
   const name = normalize(rec.name)
   const hints = new Set(hintTags.map(normalize))
   for(const h of hints){ if(tags.includes(h) || name.includes(h)) score += 3 }
-
   const cz = normalize(rec.cuisine||'')
   const prefs = new Set((prof.cuisine_prefs||[]).map(normalize))
   if (cz && prefs.has(cz)) score += 2
-
   const patt = normalize(prof.dietary_pattern||prof.meat_policy)
   const rp   = normalize((rec as any).dietary_pattern || '')
   if (patt && rp && (rp.includes('veg') === patt.includes('veg'))) score += 1
-
   return score
 }
 
-/* ======================= Data access ======================= */
+/* ===== data access ===== */
 
 async function fetchAllRecipes(supa:any): Promise<Recipe[]>{
-  const { data, error } = await supa
-    .from('recipes')
-    .select('*') // robust to schema diffs
+  const { data, error } = await supa.from('recipes').select('*')
   if (error) throw error
   return (data as Recipe[]) || []
 }
 async function fetchAllExercises(supa:any): Promise<Exercise[]>{
-  const { data, error } = await supa
-    .from('exercises')
-    .select('*') // robust to schema diffs
+  const { data, error } = await supa.from('exercises').select('*')
   if (error) throw error
   return (data as Exercise[]) || []
 }
 
-/* ===== seen-sets (IDs first, then child rows) ===== */
-
 async function getPlanDayIdsInWindow(supa:any, userId:string, startISO:string, endISO:string){
   const { data } = await supa
-    .from('plan_days')
-    .select('id')
-    .eq('user_id', userId)
-    .gte('date', startISO)
-    .lte('date', endISO)
+    .from('plan_days').select('id')
+    .eq('user_id', userId).gte('date', startISO).lte('date', endISO)
   return ((data||[]) as any[]).map(r=>r.id)
 }
 async function getWorkoutDayIdsInWindow(supa:any, userId:string, startISO:string, endISO:string){
   const { data } = await supa
-    .from('workout_days')
-    .select('id')
-    .eq('user_id', userId)
-    .gte('date', startISO)
-    .lte('date', endISO)
+    .from('workout_days').select('id')
+    .eq('user_id', userId).gte('date', startISO).lte('date', endISO)
   return ((data||[]) as any[]).map(r=>r.id)
 }
-
 async function fetchSeenMealsInWindow(supa:any, planDayIds:string[]){
   if (!planDayIds.length) return new Set<string>()
-  const { data } = await supa
-    .from('meals')
-    .select('recipe_name,plan_day_id')
-    .in('plan_day_id', planDayIds)
+  const { data } = await supa.from('meals').select('recipe_name,plan_day_id').in('plan_day_id', planDayIds)
   const seen = new Set<string>()
   for (const r of (data||[]) as any[]){ if (r.recipe_name) seen.add(normalize(r.recipe_name)) }
   return seen
 }
 async function fetchSeenWorkoutsInWindow(supa:any, workoutDayIds:string[]){
   if (!workoutDayIds.length) return new Set<string>()
-  const { data } = await supa
-    .from('workout_blocks')
-    .select('title,workout_day_id')
-    .in('workout_day_id', workoutDayIds)
+  const { data } = await supa.from('workout_blocks').select('title,workout_day_id').in('workout_day_id', workoutDayIds)
   const seen = new Set<string>()
   for (const r of (data||[]) as any[]){ if (r.title) seen.add(normalize(r.title)) }
   return seen
 }
 
-/* ======================= Meal slot logic ======================= */
+/* ===== meal timing & labels ===== */
 
 function clamp(n:number, lo:number, hi:number){ return Math.max(lo, Math.min(hi, n)) }
-
 function deriveEatingWindow(prof: Profile){
   const startHM = toHM(prof.eating_window_start || '')
   const endHM   = toHM(prof.eating_window_end   || '')
@@ -267,7 +241,6 @@ function deriveEatingWindow(prof: Profile){
   const eH = (sH + eatHours) % 24, eM = sM
   return { start: [sH, sM] as [number,number], end: [eH, eM] as [number,number] }
 }
-
 function generateMealTimesLocal(prof: Profile, slots: number): string[] {
   const n = clamp(Number(prof.meals_per_day || slots || 3), 1, 6)
   const { start, end } = deriveEatingWindow(prof)
@@ -289,18 +262,16 @@ function generateMealTimesLocal(prof: Profile, slots: number): string[] {
   })
 }
 
-/* ---- position-based, friendly meal_type labels ---- */
+/* friendly, position-based meal_type (lowercase) */
 function labelForIndex(total: number, idx: number): string {
-  if (total <= 1) return 'breakfast'  // single-meal day → breakfast to keep UI simple
+  if (total <= 1) return 'breakfast'
   if (total === 2) return idx === 0 ? 'lunch' : 'dinner'
   if (total === 3) return ['breakfast', 'lunch', 'dinner'][idx]
   const base = ['breakfast','snack 1','lunch','snack 2','dinner']
   if (idx < base.length) return base[idx]
-  return `snack ${idx - 2}` // snack 3, snack 4, …
+  return `snack ${idx - 2}`
 }
-
 function slotTagHints(total:number, idx:number): string[] {
-  // keep recipe search hints broad and stable
   if (total<=1) return ['breakfast','dinner','lunch','snack']
   if (total===2) return idx===0 ? ['lunch','snack'] : ['dinner','supper']
   if (total===3) return idx===0 ? ['breakfast'] : idx===1 ? ['lunch'] : ['dinner']
@@ -308,7 +279,7 @@ function slotTagHints(total:number, idx:number): string[] {
   return [order[Math.min(idx, order.length-1)]]
 }
 
-/* ======================= Fallback menus (rotating) ======================= */
+/* ===== fallbacks ===== */
 
 const FALLBACKS = {
   breakfast: ['Oat Bowl','Greek Yogurt Parfait','Veggie Omelette','Smoothie Bowl','Chia Pudding','Peanut Butter Toast'],
@@ -323,31 +294,26 @@ function fallbackByHint(hint:string){
   return FALLBACKS.snack
 }
 
-/* ======================= Pickers (meals & workouts) ======================= */
+/* ===== pickers ===== */
 
 function chooseTopVaried(pool:Recipe[], count:number, rnd:()=>number, seen:Set<string>, prof:Profile, hintTags:string[], cuisineCap=2){
-  const ranked = pool
-    .map(r => ({ r, s: scoreRecipeForProfile(r, prof, hintTags) }))
-    .sort((a,b) => b.s - a.s)
+  const ranked = pool.map(r => ({ r, s: scoreRecipeForProfile(r, prof, hintTags) }))
+                     .sort((a,b) => b.s - a.s)
   const top = ranked.slice(0, Math.max(10, Math.min(50, ranked.length))).map(x => x.r)
   const shuf = seededShuffle(top.length ? top : pool, rnd)
   const byCuisine = new Map<string,number>()
   const pick: Recipe[] = []
   for(const r of shuf){
-    const key = normalize(r.name)
-    if(!key || seen.has(key)) continue
+    const key = normalize(r.name); if(!key || seen.has(key)) continue
     const cz = normalize(r.cuisine||'misc')
     const used = byCuisine.get(cz)||0
     if(used >= cuisineCap) continue
-    pick.push(r)
-    seen.add(key)
-    byCuisine.set(cz, used+1)
+    pick.push(r); seen.add(key); byCuisine.set(cz, used+1)
     if(pick.length>=count) break
   }
   if(pick.length<count){
     for(const r of shuf){
-      const key = normalize(r.name)
-      if(!key || seen.has(key)) continue
+      const key = normalize(r.name); if(!key || seen.has(key)) continue
       pick.push(r); seen.add(key)
       if(pick.length>=count) break
     }
@@ -355,15 +321,7 @@ function chooseTopVaried(pool:Recipe[], count:number, rnd:()=>number, seen:Set<s
   return pick
 }
 
-async function pickMealsForDay(
-  allRecipes:Recipe[],
-  dayIndex:number,
-  prof: Profile,
-  rnd:()=>number,
-  seenAcrossWindow:Set<string>,
-  slots:number,
-  userSeed:number
-){
+async function pickMealsForDay(allRecipes:Recipe[], dayIndex:number, prof: Profile, rnd:()=>number, seenAcrossWindow:Set<string>, slots:number, userSeed:number){
   const times = generateMealTimesLocal(prof, slots)
   const picks: { meal_type: string, recipe_name: string, time_local?: string, alternates?: string[] }[] = []
   const allowed = allRecipes.filter(r => isRecipeAllowed(r, prof))
@@ -417,11 +375,8 @@ async function pickMealsForDay(
       }
     }
 
-    // 👇 friendly, position-based meal_type (lowercase so existing checks like .includes('break') keep working)
-    const meal_type = labelForIndex(slots, i)
-
     picks.push({
-      meal_type,
+      meal_type: labelForIndex(slots, i), // friendly label
       recipe_name: primaryName,
       time_local: times[i],
       alternates: alts
@@ -495,7 +450,7 @@ async function pickWorkoutForDay(allExercises:Exercise[], dayIndex:number, prof:
   ]
 }
 
-/* ======================= Rolling 7-day generator ======================= */
+/* ===== 7-day window generator (start inclusive) ===== */
 
 async function ensureRollingWindowForUser(supa:any, userId:string, prof:Profile, startDateISO:string){
   const [Y,M,D] = startDateISO.split('-').map(Number)
@@ -570,45 +525,31 @@ async function ensureRollingWindowForUser(supa:any, userId:string, prof:Profile,
       })
     }
 
-    // ---- Insert meals with robust fallbacks & user_id ----
     if (toInsertMeals_full.length) {
       let inserted = false
-      {
-        const rows = toInsertMeals_full.map(r => ({ ...r, user_id: userId }))
-        const { error } = await supa.from('meals').insert(rows)
-        if (!error) inserted = true
-      }
+      { const rows = toInsertMeals_full.map(r => ({ ...r, user_id: userId }))
+        const { error } = await supa.from('meals').insert(rows); if (!error) inserted = true }
       if (!inserted) {
         const rows = toInsertMeals_timeOnly.map(r => ({ ...r, user_id: userId }))
-        const { error } = await supa.from('meals').insert(rows)
-        if (!error) inserted = true
-      }
+        const { error } = await supa.from('meals').insert(rows); if (!error) inserted = true }
       if (!inserted) {
         const rows = toInsertMeals_base.map(r => ({ ...r, user_id: userId }))
-        const { error } = await supa.from('meals').insert(rows)
-        if (!error) inserted = true
-      }
+        const { error } = await supa.from('meals').insert(rows); if (!error) inserted = true }
       if (!inserted) {
-        const { error } = await supa.from('meals').insert(toInsertMeals_base) // legacy schema w/o user_id
+        const { error } = await supa.from('meals').insert(toInsertMeals_base)
         if (error) throw error
       }
     }
 
-    // ---- Insert workout blocks (include user_id; with extra minimal fallback) ----
     if (toInsertBlocks.length) {
       let ok = false
-      {
-        const rows = toInsertBlocks.map(r => ({ ...r, user_id: userId }))
-        const { error } = await supa.from('workout_blocks').insert(rows)
-        if (!error) ok = true
-      }
+      { const rows = toInsertBlocks.map(r => ({ ...r, user_id: userId }))
+        const { error } = await supa.from('workout_blocks').insert(rows); if (!error) ok = true }
       if (!ok) {
         const rowsMin = toInsertBlocks.map(b => ({ title: b.title, workout_day_id: workoutDayId, user_id: userId }))
-        const { error } = await supa.from('workout_blocks').insert(rowsMin)
-        if (!error) ok = true
-      }
+        const { error } = await supa.from('workout_blocks').insert(rowsMin); if (!error) ok = true }
       if (!ok) {
-        const { error } = await supa.from('workout_blocks').insert(toInsertBlocks) // legacy schema
+        const { error } = await supa.from('workout_blocks').insert(toInsertBlocks)
         if (error) throw error
       }
     }
@@ -623,7 +564,7 @@ async function ensureRollingWindowForUser(supa:any, userId:string, prof:Profile,
   return results
 }
 
-/* ======================= Profile normalization ======================= */
+/* ===== profile normalization ===== */
 
 function normalizeProfile(raw: Raw): Profile {
   const cuisines = toList(raw.cuisine_prefs ?? raw.cuisines)
@@ -654,7 +595,7 @@ function normalizeProfile(raw: Raw): Profile {
   }
 }
 
-/* ======================= Route handler ======================= */
+/* ===== route handler ===== */
 
 function getQueryStart(req: Request): string | null {
   try {
@@ -674,12 +615,17 @@ export async function POST(req: Request){
 
   const supa = getAdminClient()
   const override = getQueryStart(req)
-  const startDateISO = override || ymdLocal(nowInLondon())
 
-  // fetch broadly; we normalize to handle schema diffs
-  const { data: rows, error: pErr } = await supa
-    .from('profiles')
-    .select('*') // pull only what exists; normalizer copes
+  const now = nowInLondon()
+  const thisMon = mondayOfWeek(now)
+  const nextMon = addDays(thisMon, 7)
+
+  // Windows to ensure:
+  //  - if override provided → just that 7-day window
+  //  - else → this week (Mon→Sun) + next week (Mon→Sun) for Plans + ahead prep
+  const starts = override ? [override] : [ ymdLocal(thisMon), ymdLocal(nextMon) ]
+
+  const { data: rows, error: pErr } = await supa.from('profiles').select('*')
   if(pErr) return NextResponse.json({ ok:false, error:pErr.message }, { status: 500 })
 
   const profs: Profile[] = (rows||[]).map(normalizeProfile)
@@ -691,15 +637,18 @@ export async function POST(req: Request){
     const uid = prof.id
     if(!uid) continue
     totalUsers++
-    try{
-      const res = await ensureRollingWindowForUser(supa, uid, prof, startDateISO)
-      perUser.push({ user: uid, start: startDateISO, results: res })
-    }catch(e:any){
-      perUser.push({ user: uid, start: startDateISO, error: e?.message || String(e) })
+
+    for(const startISO of starts){
+      try{
+        const res = await ensureRollingWindowForUser(supa, uid, prof, startISO)
+        perUser.push({ user: uid, start: startISO, results: res })
+      }catch(e:any){
+        perUser.push({ user: uid, start: startISO, error: e?.message || String(e) })
+      }
     }
   }
 
-  return NextResponse.json({ ok:true, start: startDateISO, users: totalUsers, perUser })
+  return NextResponse.json({ ok:true, weeks: starts, users: totalUsers, perUser })
 }
 
 export async function GET(req: Request){
